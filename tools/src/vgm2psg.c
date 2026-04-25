@@ -267,33 +267,45 @@ int main(int argc, char *argv[])
   int c;
   int leave = 0;
   int fatal = 0;
-  int ss, fs;
+  int ss;
+  int fs;
   int latched_chn = 0;
   int first_byte = TRUE;
-  unsigned int file_signature, frame_rate;
+  unsigned int file_signature;
+  unsigned int frame_rate;
   int sample_divider = 735; // NTSC (default)
 
   printf("*** sverx's VGM to PSG converter ***\n");
 
   if (argc > 4)
   {
+    // 致命的エラー：指定されたパラメータが多すぎます。最大で3つまでしか指定できません。
     printf("Fatal: too many parameters specified. Three parameters at max are allowed.\n");
   }
 
   if (argc < 3)
   {
+    // 致命的エラー：指定されたパラメータが少なすぎます。少なくとも2つのパラメータが必要です。
     printf("Fatal: too few parameters specified. At least two parameters are required.\n");
   }
 
   if ((argc < 3) || (argc > 4))
   {
+    // 使用方法：vgm2psg 入力ファイル.VGM 出力ファイル.PSG [[0][1][2][3]]
     printf("Usage: vgm2psg inputfile.VGM outputfile.PSG [[0][1][2][3]]\n");
+    // 【オプション】SFX（効果音）を変換する際、3番目のパラメータで有効にするチャンネルを指定します。例：
     printf(" [optional] when converting SFXs, the third parameter specifies which channel(s) should be active, examples:\n");
+    // 0 は、その SFX がチャンネル0のみを使用していることを意味します。
     printf("   0 means the SFX is using channel 0 only\n");
+    // 1 は、その SFX がチャンネル1のみを使用していることを意味します。
     printf("   1 means the SFX is using channel 1 only\n");
+    // 2 は、その SFX がチャンネル2のみを使用していることを意味します。
     printf("   2 means the SFX is using channel 2 only\n");
+    // 3 は、その SFX がチャンネル3（ノイズ）のみを使用していることを意味します。
     printf("   3 means the SFX is using channel 3 (noise) only\n");
+    // 23 は、その SFX がチャンネル2とチャンネル3（ノイズ）の両方を使用していることを意味します。
     printf("  23 means the SFX is using both channel 2 and channel 3 (noise)\n");
+    // 123 は、その SFX がチャンネル1、チャンネル2、およびチャンネル3（ノイズ）を使用していることを意味します。
     printf(" 123 means the SFX is using channels 1 and 2 and channel 3 (noise)\n");
     return (1);
   }
@@ -302,7 +314,7 @@ int main(int argc, char *argv[])
   {
     for (i = 0; i < CHANNELS; i++)
     {
-      active[i] = 0;
+      active[i] = FALSE;
     }
 
     for (i = 0; i < strlen(argv[3]); i++)
@@ -310,32 +322,39 @@ int main(int argc, char *argv[])
       switch (argv[3][i])
       {
       case '0':
-        active[0] = 1;
+        active[0] = TRUE;
         break;
       case '1':
-        active[1] = 1;
+        active[1] = TRUE;
         break;
       case '2':
-        active[2] = 1;
+        active[2] = TRUE;
         break;
       case '3':
-        active[3] = 1;
+        active[3] = TRUE;
         break;
       default:
+        // 致命的エラー：オプションの第3パラメータには、0〜3の数字のみを含めることができます。
         printf("Fatal: the optional third parameter can only contains digits 0 to 3\n");
         return (1);
       }
     }
 
-    if (!(active[0] && active[1] && active[2] && active[3]))
+    // if (!(active[0] && active[1] && active[2] && active[3]))
+    if (active[0] == FALSE
+      || active[1] == FALSE
+      || active[2] == FALSE
+      || active[3] == FALSE
+    )
     {
       is_sfx = TRUE;
-      printf("Info: SFX conversion on channel(s): %s%s%s%s\n", active[0] ? "0" : "", active[1] ? "1" : "", active[2] ? "2" : "", active[3] ? "3" : "");
+      printf("Info: SFX conversion on channel(s): %s%s%s%s\n", active[0] ? "0" : "_", active[1] ? "1" : "_", active[2] ? "2" : "_", active[3] ? "3" : "_");
     }
   }
 
   init_frame(TRUE);
 
+  // ファイルオープン
   fIN = gzopen(argv[1], "rb");
   if (!fIN)
   {
@@ -343,19 +362,31 @@ int main(int argc, char *argv[])
     return (1);
   }
 
+  // 4バイト読み込み
   gzread(fIN, &file_signature, 4);
   if (file_signature != 0x206d6756)
   {
     // check for 'Vgm ' file signature
+    // 致命的エラー：入力ファイルが有効なVGM/VGZファイルではないようです。
     printf("Fatal: input file doesn't seem a valid VGM/VGZ file\n");
     return (1);
   }
 
   // seek to FRAMERATE in the VGM header
-  gzseek(fIN, VGM_HEADER_FRAMERATE, SEEK_SET);
+  // 圧縮ファイル内の読み取り位置を移動
+  gzseek(
+    fIN,  // 対象のファイル（入力ファイル）
+    VGM_HEADER_FRAMERATE, //  0x24バイト目の位置まで読み取り位置を移動
+    SEEK_SET  // ファイルの先頭からの位置を基準にする
+  );
 
+  //===========================================
   // read frame_rate
-  gzread(fIN, &frame_rate, 4);
+  gzread(
+    fIN, 
+    &frame_rate, // 読み込んだデータを格納する場所（メモリ）
+    4
+  );
 
   if (frame_rate == 60)
   {
@@ -370,43 +401,87 @@ int main(int argc, char *argv[])
   {
     printf("Warning: unknown frame rate, assuming NTSC (60Hz)\n");
   }
+  // read frame_rate
+  //===========================================
 
+
+  //===========================================
   // seek to LOOPPOINT in the VGM header
-  gzseek(fIN, VGM_HEADER_LOOPPOINT, SEEK_SET);
+  gzseek(
+    fIN, 
+    VGM_HEADER_LOOPPOINT, // 0x1Cバイト目の位置まで読み取り位置を移動
+    SEEK_SET
+  );
 
   // read loop_offset
-  gzread(fIN, &loop_offset, 4);
+  gzread(
+    fIN,
+    &loop_offset,
+    4
+  );
+  // seek to LOOPPOINT in the VGM header
+  //===========================================
 
+  //===========================================
   // seek to DATAOFFSET in the VGM header
-  gzseek(fIN, VGM_DATA_OFFSET, SEEK_SET);
+  gzseek(
+    fIN, 
+    VGM_DATA_OFFSET,  // 0x34バイト目の位置まで読み取り位置を移動
+    SEEK_SET
+  );
 
   // read data_offset
-  gzread(fIN, &data_offset, 4);
+  gzread(
+    fIN, 
+    &data_offset, 
+    4
+  );
+  // seek to DATAOFFSET in the VGM header
+  //===========================================
 
   if (data_offset != 0)
   {
     // skip VGM header
-    gzseek(fIN, VGM_DATA_OFFSET + data_offset, SEEK_SET);
+    gzseek(
+      fIN, 
+      VGM_DATA_OFFSET + data_offset,  // 0x34 + data_offset
+      SEEK_SET
+    );
     data_offset = VGM_DATA_OFFSET + data_offset;
   }
   else
   {
     // skip 'old' VGM header
-    gzseek(fIN, VGM_OLD_HEADERSIZE, SEEK_SET);
+    gzseek(
+      fIN, 
+      VGM_OLD_HEADERSIZE, 
+      SEEK_SET
+    );
+
     // note: some VGMs can have zero in the data_offset field and have 256 bytes long header instead of 64, filled with zeroes. We do a quick check here.
+    // 注：一部のVGMでは、data_offset フィールドが 0 の場合があり、その場合ヘッダは 64バイトではなく 256バイトで、残りはゼロで埋められています。ここではその簡易チェックを行います。
     c = gzgetc(fIN);
     if (c == 0)
     {
+      // 警告：不正な形式のVGMです。できる限り処理を試みます。
       printf("Warning: malformed VGM, will try my best\n");
 
       // skip 'big' VGM header
-      gzseek(fIN, VGM_BIG_HEADERSIZE, SEEK_SET);
+      gzseek(
+        fIN, 
+        VGM_BIG_HEADERSIZE, // 256
+        SEEK_SET
+      );
       data_offset = VGM_BIG_HEADERSIZE;
     }
     else
     {
       // skip 'old' VGM header
-      gzseek(fIN, VGM_OLD_HEADERSIZE, SEEK_SET);
+      gzseek(
+        fIN,
+        VGM_OLD_HEADERSIZE, // 64
+        SEEK_SET
+      );
       data_offset = VGM_OLD_HEADERSIZE;
     }
   }
@@ -414,7 +489,10 @@ int main(int argc, char *argv[])
   if (loop_offset != 0)
   {
     printf("Info: loop point at 0x%08x\n", loop_offset);
-    loop_offset = loop_offset + VGM_HEADER_LOOPPOINT - data_offset;
+    loop_offset = 
+    loop_offset
+     + VGM_HEADER_LOOPPOINT // 0x1C
+      - data_offset;
   }
   else
   {
