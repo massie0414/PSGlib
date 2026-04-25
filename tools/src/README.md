@@ -18,3 +18,12 @@ i686-w64-mingw32-gcc -Wall -o psgcomp_ng.exe psgcomp_ng.c growbuf.c psgcompress.
 i686-w64-mingw32-gcc -Wall -o psg2txt.exe psg2txt.c growbuf.c
 ```
 
+for Windows (MSYS2):
+```
+gcc -Wall -o vgm2psg.exe vgm2psg.c -lz
+gcc -Wall -o psgcomp.exe psgcomp.c
+gcc -Wall -o psgdecomp.exe psgdecomp.c
+gcc -Wall -o psgcmp.exe psgcmp.c
+gcc -Wall -o psgcomp_ng.exe psgcomp_ng.c growbuf.c psgcompress.c
+gcc -Wall -o psg2txt.exe psg2txt.c growbuf.c
+```
