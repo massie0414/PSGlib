@@ -161,14 +161,20 @@ void dump_frame(void)
     if (freq_change[i])
     {
       c = (freq[i] & 0x0F) | (i << 5) | 0x80; // latch channel 0-2 freq
-      fputc(c, fOUT);
+      fputc(
+        c, 
+        fOUT
+      );
       if (hi_freq_change[i])
       {
         // DATA byte needed?
 
         // make sure DATA bytes have 1 as 6th bit
         c = (freq[i] >> 4) | 0x40;
-        fputc(c, fOUT);
+        fputc(
+          c, 
+          fOUT
+        );
       }
     }
 
@@ -176,7 +182,10 @@ void dump_frame(void)
     {
       // latch channel 0-2 volume
       c = 0x90 | (i << 5) | (volume[i] & 0x0F);
-      fputc(c, fOUT);
+      fputc(
+        c, 
+        fOUT
+      );
     }
   }
 
@@ -184,14 +193,20 @@ void dump_frame(void)
   {
     // latch channel 3 (noise)
     c = (freq[i] & 0x07) | 0xE0;
-    fputc(c, fOUT);
+    fputc(
+      c, 
+      fOUT
+    );
   }
 
   if (volume_change[3])
   {
     // latch channel 3 volume
     c = 0x90 | (i << 5) | (volume[3] & 0x0F);
-    fputc(c, fOUT);
+    fputc(
+      c,
+      fOUT
+    );
   }
 }
 
@@ -202,7 +217,10 @@ void dump_pause(void)
     while (pause_len > MAX_WAIT)
     {
       // write PSG_WAIT+7 to file
-      fputc(PSG_WAIT + MAX_WAIT, fOUT);
+      fputc(
+        PSG_WAIT + MAX_WAIT,  // 0x38 + 7
+        fOUT
+      );
 
       // skip MAX_WAIT+1
       pause_len -= MAX_WAIT + 1;
@@ -210,7 +228,10 @@ void dump_pause(void)
     if (pause_len > 0)
     {
       // write PSG_WAIT+[0 to 7] to file, don't do it if 0
-      fputc(PSG_WAIT + (pause_len - 1), fOUT);
+      fputc(
+        PSG_WAIT + (pause_len - 1), // 0x38 + 
+        fOUT
+      );
     }
   }
 }
@@ -255,7 +276,11 @@ void empty_data(void)
 void writeLoopMarker(void)
 {
   empty_data();
-  fputc(PSG_LOOPMARKER, fOUT);
+
+  fputc(
+    PSG_LOOPMARKER, // 0x01
+    fOUT
+  );
 }
 
 //====================================================================
@@ -490,8 +515,8 @@ int main(int argc, char *argv[])
   {
     printf("Info: loop point at 0x%08x\n", loop_offset);
     loop_offset = 
-    loop_offset
-     + VGM_HEADER_LOOPPOINT // 0x1C
+        loop_offset
+      + VGM_HEADER_LOOPPOINT // 0x1C
       - data_offset;
   }
   else
@@ -512,8 +537,13 @@ int main(int argc, char *argv[])
   while ((!leave) && (!gzeof(fIN)))
   {
     c = gzgetc(fIN);
-    decLoopOffset(1);
-    if (checkLoopOffset())
+
+    // loop_offsetを-1している
+    // decLoopOffset(1);
+    loop_offset -= 1;
+
+    // if (checkLoopOffset())
+    if (loop_offset == 0)
     {
       writeLoopMarker();
     }
@@ -528,7 +558,9 @@ int main(int argc, char *argv[])
       printf("Warning: GameGear stereo info discarded\n");
       decLoopOffset(1);
       if (checkLoopOffset())
+      {
         writeLoopMarker();
+      }
       break;
 
     case VGM_FMFOLLOWS:
@@ -538,7 +570,9 @@ int main(int argc, char *argv[])
       printf("Warning: FM chip write discarded\n");
       decLoopOffset(2);
       if (checkLoopOffset())
+      {
         writeLoopMarker();
+      }
       break;
 
     case VGM_PSGFOLLOWS:
@@ -588,12 +622,28 @@ int main(int argc, char *argv[])
       do
       {
         c = gzgetc(fIN);
-        if ((c == VGM_FRAMESKIP_NTSC) || (c == VGM_FRAMESKIP_PAL))
+        if (
+           (c == VGM_FRAMESKIP_NTSC) // 0x62
+        || (c == VGM_FRAMESKIP_PAL)  // 0x63
+        )
+        {
           fs++;
+        }
         decLoopOffset(1);
-      } while ((fs < MAX_WAIT) && ((c == VGM_FRAMESKIP_NTSC) || (c == VGM_FRAMESKIP_PAL)) && (!checkLoopOffset()));
+      } 
+      while (
+        (fs < MAX_WAIT) 
+        && (
+          (c == VGM_FRAMESKIP_NTSC) 
+          || (c == VGM_FRAMESKIP_PAL)
+        )
+        && (!checkLoopOffset())
+      );
 
-      if ((c != VGM_FRAMESKIP_NTSC) && (c != VGM_FRAMESKIP_PAL))
+      if (
+        (c != VGM_FRAMESKIP_NTSC) 
+        && (c != VGM_FRAMESKIP_PAL)
+      )
       {
         gzungetc(c, fIN);
         incLoopOffset();
@@ -625,8 +675,11 @@ int main(int argc, char *argv[])
       if ((ss % sample_divider) != 0)
       {
         printf("Warning: pause length isn't perfectly frame sync'd\n");
-        if ((ss % sample_divider) > (sample_divider / 2)) // round to closest int
+        if ((ss % sample_divider) > (sample_divider / 2)) 
+        {
+          // round to closest int
           fs++;
+        }
       }
 
       pause_len += fs;
@@ -649,8 +702,14 @@ int main(int argc, char *argv[])
       {
         writeLoopMarker();
       }
+
       empty_data();
-      fputc(PSG_ENDOFDATA, fOUT);
+
+      fputc(
+        PSG_ENDOFDATA,  // 0x00
+        fOUT
+      );
+
       break;
 
     default:
