@@ -54,22 +54,22 @@ int active[CHANNELS] = {FALSE, FALSE, FALSE, FALSE};
 int is_sfx = FALSE;
 int warn_32 = FALSE;
 
-void decLoopOffset(int n)
-{
-  loop_offset -= n;
-}
+// void decLoopOffset(int n)
+// {
+//   loop_offset -= n;
+// }
 
-void incLoopOffset(void)
-{
-  loop_offset++;
-}
+// void incLoopOffset(void)
+// {
+//   loop_offset++;
+// }
 
-int checkLoopOffset(void)
-{
+// int checkLoopOffset(void)
+// {
   // returns 1 when loop_offset becomes 0
   // loop_offset が 0 になったときに 1 を返す
-  return (loop_offset == 0);
-}
+//   return (loop_offset == 0);
+// }
 
 void init_frame(int initial_state)
 {
@@ -86,33 +86,39 @@ void init_frame(int initial_state)
 void add_command(unsigned char c)
 {
   int chn, typ;
-  if (c & 0x80)
+  // if (c & 0x80)
+  if (c & 0b1000'0000)
   {
     // it's a latch
-    chn = (c & 0x60) >> 5;
-    typ = (c & 0x10) >> 4;
+    // chn = (c & 0x60) >> 5;
+    chn = (c & 0b0110'0000) >> 5;
+    // typ = (c & 0x10) >> 4;
+    typ = (c & 0b0001'0000) >> 4;
     if (typ == 1)
     {
-      if (volume[chn] != (c & 0x0F))
+      // if (volume[chn] != (c & 0x0F))
+      if (volume[chn] != (c & 0b0000'1111))
       {
         // see if we're really changing the volume or not
-        volume[chn] = c & 0x0F;
+        // volume[chn] = c & 0x0F;
+        volume[chn] = c & 0b0000'1111;
         volume_change[chn] = TRUE;
       }
     }
     else
     {
-      if (
-          (chn == 3) || ((freq[chn] & 0x0F) != (c & 0x0F)))
+      // if ((chn == 3) || ((freq[chn] & 0x0F) != (c & 0x0F)))
+      if ((chn == 3) || ((freq[chn] & 0b0000'1111) != (c & 0b0000'1111)))
       {
         // see if we're really changing the low part of the frequency or not (saving noise channel retrigs!)
         // 実際に周波数の下位部分を変更しているかどうかを確認する（ノイズチャンネルの再トリガーを抑えるため！）
-        freq[chn] = (freq[chn] & 0xFFF0) | (c & 0x0F);
+        // freq[chn] = (freq[chn] & 0xFFF0) | (c & 0x0F);
+        freq[chn] = (freq[chn] & 0b1111'1111'1111'0000) | (c & 0b0000'1111);
         freq_change[chn] = TRUE;
       }
 
-      if (
-          (chn == 3) && (is_sfx) && (active[3]) && (!active[2]) && ((c & 0x3) == 0x3) && (!warn_32))
+      // if ((chn == 3) && (is_sfx) && (active[3]) && (!active[2]) && ((c & 0x3) == 0x3) && (!warn_32))
+      if ((chn == 3) && (is_sfx) && (active[3]) && (!active[2]) && ((c & 0b0000'0011) == 0b0000'0011) && (!warn_32))
       {
         // 警告：チャンネル3（ノイズチャンネル）がチャンネル2のトーンを使用しています。
         // おそらく、チャンネル2も含めて vgm2psg を実行する必要があります。
@@ -124,24 +130,30 @@ void add_command(unsigned char c)
   else
   {
     // it's a data (not a latch)
-    chn = (lastlatch & 0x60) >> 5;
-    typ = (lastlatch & 0x10) >> 4;
+    // chn = (lastlatch & 0x60) >> 5;
+    chn = (lastlatch & 0b0110'0000) >> 5;
+    // typ = (lastlatch & 0x10) >> 4;
+    typ = (lastlatch & 0b0001'0000) >> 4;
     if (typ == 1)
     {
-      if (volume[chn] != (c & 0x0F))
+      // if (volume[chn] != (c & 0x0F))
+      if (volume[chn] != (c & 0b0000'1111))
       {
         // see if we're really changing the volume or not
-        volume[chn] = c & 0x0F;
+        // volume[chn] = c & 0x0F;
+        volume[chn] = c & 0b0000'1111;
         volume_change[chn] = TRUE;
       }
     }
     else
     {
-      if ((c & 0x3F) != (freq[chn] >> 4))
+      // if ((c & 0x3F) != (freq[chn] >> 4))
+      if ((c & 0b0011'1111) != (freq[chn] >> 4))
       {
         // see if we're really changing the high part of the frequency or not
         // 周波数の上位部分を実際に変更しているかどうかを確認する
-        freq[chn] = (freq[chn] & 0x000F) | ((c & 0x3F) << 4);
+        // freq[chn] = (freq[chn] & 0x000F) | ((c & 0x3F) << 4);
+        freq[chn] = (freq[chn] & 0b0000'0000'0000'1111) | ((c & 0b0011'1111) << 4);
         hi_freq_change[chn] = TRUE;
 
         // to update the high part of the frequency we need to update the low part too, there's no other way
@@ -152,6 +164,7 @@ void add_command(unsigned char c)
   }
 }
 
+// 1フレーム分の音データを出力する関数
 void dump_frame(void)
 {
   int i;
@@ -160,17 +173,21 @@ void dump_frame(void)
   {
     if (freq_change[i])
     {
-      c = (freq[i] & 0x0F) | (i << 5) | 0x80; // latch channel 0-2 freq
-      fputc(
+      // c = (freq[i] & 0x0F) | (i << 5) | 0x80; // latch channel 0-2 freq
+      c = 0b1000'0000 | (i << 5) | (freq[i] & 0b0000'1111); // latch channel 0-2 freq
+      
+      fputc( 
         c, 
         fOUT
       );
+
       if (hi_freq_change[i])
       {
         // DATA byte needed?
 
         // make sure DATA bytes have 1 as 6th bit
-        c = (freq[i] >> 4) | 0x40;
+        // c = (freq[i] >> 4) | 0x40;
+        c = 0b0100'0000 | (freq[i] >> 4);
         fputc(
           c, 
           fOUT
@@ -181,7 +198,8 @@ void dump_frame(void)
     if (volume_change[i])
     {
       // latch channel 0-2 volume
-      c = 0x90 | (i << 5) | (volume[i] & 0x0F);
+      // c = 0x90 | (i << 5) | (volume[i] & 0x0F);
+      c = 0b1001'0000 | (i << 5) | (volume[i] & 0b0000'1111);
       fputc(
         c, 
         fOUT
@@ -192,7 +210,9 @@ void dump_frame(void)
   if (freq_change[3])
   {
     // latch channel 3 (noise)
-    c = (freq[i] & 0x07) | 0xE0;
+    // c = (freq[i] & 0x07) | 0xE0;
+    // c = (freq[i] & 0b0000'0111) | 0b1110'0000;
+    c = 0b1110'0000 | (freq[3] & 0b0000'0111);
     fputc(
       c, 
       fOUT
@@ -202,7 +222,10 @@ void dump_frame(void)
   if (volume_change[3])
   {
     // latch channel 3 volume
-    c = 0x90 | (i << 5) | (volume[3] & 0x0F);
+    // c = 0x90 | (i << 5) | (volume[3] & 0x0F);
+    // c = 0b1001'0000 | (i << 5) | (volume[3] & 0b0000'1111);
+    // c = 0b1001'0000 | 0b0110'0000 | (volume[3] & 0b0000'1111);
+    c = 0b1111'0000 | (volume[3] & 0b0000'1111);
     fputc(
       c,
       fOUT
@@ -273,15 +296,15 @@ void empty_data(void)
   }
 }
 
-void writeLoopMarker(void)
-{
-  empty_data();
+// void writeLoopMarker(void)
+// {
+//   empty_data();
 
-  fputc(
-    PSG_LOOPMARKER, // 0x01
-    fOUT
-  );
-}
+//   fputc(
+//     PSG_LOOPMARKER, // 0x01
+//     fOUT
+//   );
+// }
 
 //====================================================================
 // メイン処理
@@ -545,58 +568,85 @@ int main(int argc, char *argv[])
     // if (checkLoopOffset())
     if (loop_offset == 0)
     {
-      writeLoopMarker();
+      // writeLoopMarker();
+      empty_data();
+      fputc(
+        PSG_LOOPMARKER, // 0x01
+        fOUT
+      );
     }
 
     switch (c)
     {
 
-    case VGM_GGSTEREO:
+    case VGM_GGSTEREO:  // 0x4F
       // stereo data byte follows
       // BETA: this is simply DISCARDED atm
       c = gzgetc(fIN);
       printf("Warning: GameGear stereo info discarded\n");
-      decLoopOffset(1);
-      if (checkLoopOffset())
+      // decLoopOffset(1);
+      loop_offset -= 1;
+      // if (checkLoopOffset())
+      if (loop_offset == 0)
       {
-        writeLoopMarker();
+        // writeLoopMarker();
+        empty_data();
+        fputc(
+          PSG_LOOPMARKER, // 0x01
+          fOUT
+        );
       }
       break;
 
-    case VGM_FMFOLLOWS:
+    case VGM_FMFOLLOWS: // 0x51
       // discard this!
       c = gzgetc(fIN);
       c = gzgetc(fIN);
       printf("Warning: FM chip write discarded\n");
-      decLoopOffset(2);
-      if (checkLoopOffset())
+      // decLoopOffset(2);
+      loop_offset -= 2;
+      // if (checkLoopOffset())
+      if (loop_offset == 0)
       {
-        writeLoopMarker();
+        // writeLoopMarker();
+        empty_data();
+        fputc(
+          PSG_LOOPMARKER, // 0x01
+          fOUT
+        );
       }
       break;
 
-    case VGM_PSGFOLLOWS:
+    case VGM_PSGFOLLOWS:  // 0x50
       // PSG byte follows
 
       c = gzgetc(fIN);
 
-      if (c & 0x80)
+      // if (c & 0x80)
+      if (c & 0b1000'0000)  // ラッチデータ
       {
         lastlatch = c;                 // latch value
-        latched_chn = (c & 0x60) >> 5; // isolate chn number
+        // latched_chn = (c & 0x60) >> 5; // isolate chn number
+        latched_chn = (c & 0b0110'0000) >> 5; // isolate chn number
       }
       else
       {
-        c |= 0x40; // make sure DATA bytes have 1 as 6th bit
+        // ラッチデータではない
+        // c |= 0x40; // make sure DATA bytes have 1 as 6th bit
+        c |= 0b0100'0000; // make sure DATA bytes have 1 as 6th bit
       }
 
-      if ((!is_sfx) || (active[latched_chn]))
+      if (
+        (!is_sfx)
+         || (active[latched_chn])
+      )
       {
         // output only if on an active channel
 
         found_frame();
 
-        if ((first_byte) && ((c & 0x80) == 0))
+        // if ((first_byte) && ((c & 0x80) == 0))
+        if ((first_byte) && ((c & 0b1000'0000) == 0))
         {
           add_command(lastlatch);
           printf("Warning: added missing latch command in frame start\n");
@@ -605,15 +655,23 @@ int main(int argc, char *argv[])
         first_byte = FALSE;
       }
 
-      decLoopOffset(1);
-      if (checkLoopOffset())
+      // decLoopOffset(1);
+      loop_offset -= 1;
+      // if (checkLoopOffset())
+      if (loop_offset == 0)
       {
-        writeLoopMarker();
+        // writeLoopMarker();
+        empty_data();
+        fputc(
+          PSG_LOOPMARKER, // 0x01
+          fOUT
+        );
       }
+
       break;
 
-    case VGM_FRAMESKIP_NTSC:
-    case VGM_FRAMESKIP_PAL:
+    case VGM_FRAMESKIP_NTSC: // 0x62 待つ
+    case VGM_FRAMESKIP_PAL:  // 0x63 待つ
 
       // frame skip, now count how many
       found_pause();
@@ -629,28 +687,37 @@ int main(int argc, char *argv[])
         {
           fs++;
         }
-        decLoopOffset(1);
+        // decLoopOffset(1);
+        loop_offset -= 1;
       } 
       while (
-        (fs < MAX_WAIT) 
+        (fs < MAX_WAIT) // 7
         && (
-          (c == VGM_FRAMESKIP_NTSC) 
-          || (c == VGM_FRAMESKIP_PAL)
+          (c == VGM_FRAMESKIP_NTSC)   // 0x62
+          || (c == VGM_FRAMESKIP_PAL) // 0x63
         )
-        && (!checkLoopOffset())
+        // && (!checkLoopOffset())
+        && (loop_offset != 0)
       );
 
       if (
-        (c != VGM_FRAMESKIP_NTSC) 
-        && (c != VGM_FRAMESKIP_PAL)
+        (c != VGM_FRAMESKIP_NTSC)   // 0x62
+        && (c != VGM_FRAMESKIP_PAL) // 0x63
       )
       {
         gzungetc(c, fIN);
-        incLoopOffset();
+        // incLoopOffset();
+        loop_offset++;
       }
-      else if (checkLoopOffset())
+      // else if (checkLoopOffset())
+      else if (loop_offset == 0)
       {
-        writeLoopMarker();
+        // writeLoopMarker();
+        empty_data();
+        fputc(
+          PSG_LOOPMARKER, // 0x01
+          fOUT
+        );
       }
 
       pause_len += fs;
@@ -659,7 +726,7 @@ int main(int argc, char *argv[])
 
       break;
 
-    case VGM_SAMPLESKIP:
+    case VGM_SAMPLESKIP:  // 0x61
       // sample skip, now count how many
 
       found_pause();
@@ -684,23 +751,37 @@ int main(int argc, char *argv[])
 
       pause_len += fs;
 
-      decLoopOffset(2);
-      if (checkLoopOffset())
+      // decLoopOffset(2);
+      loop_offset -= 2;
+      // if (checkLoopOffset())
+      if (loop_offset == 0)
       {
-        writeLoopMarker();
+        // writeLoopMarker();
+        empty_data();
+        fputc(
+          PSG_LOOPMARKER, // 0x01
+          fOUT
+        );
       }
 
       first_byte = TRUE;
 
       break;
 
-    case VGM_ENDOFDATA:
+    case VGM_ENDOFDATA: // 0x66
       // end of data
       leave = 1;
-      decLoopOffset(1);
-      if (checkLoopOffset())
+      // decLoopOffset(1);
+      loop_offset -= 1;
+      // if (checkLoopOffset())
+      if (loop_offset == 0)
       {
-        writeLoopMarker();
+        // writeLoopMarker();
+        empty_data();
+        fputc(
+          PSG_LOOPMARKER, // 0x01
+          fOUT
+        );
       }
 
       empty_data();
@@ -714,7 +795,8 @@ int main(int argc, char *argv[])
 
     default:
       // Drop compact (1 to 16) sample skip command
-      if ((c & 0xf0) == VGM_SAMPLESKIP_7N)
+      // if ((c & 0xf0) == VGM_SAMPLESKIP_7N)  // 0x70
+      if ((c & 0b1111'0000) == 0b0111'0000)  // 0x70
       {
         printf("Warning: pause length isn't perfectly frame sync'd\n");
         break;
