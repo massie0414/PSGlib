@@ -29,6 +29,9 @@
 
 #define CHANNELS 4
 
+const int NTSC = 735;
+const int PAL = 882;
+
 unsigned int loop_offset;
 unsigned int data_offset;
 gzFile fIN;
@@ -51,7 +54,7 @@ int pause_len = 0;
 unsigned char lastlatch = 0x9F;
 
 int active[CHANNELS] = {FALSE, FALSE, FALSE, FALSE};
-int is_sfx = FALSE;
+// int is_sfx = FALSE;
 int warn_32 = FALSE;
 
 // void decLoopOffset(int n)
@@ -84,7 +87,7 @@ void init_frame()
   // frame_started = initial_state;
 }
 
-void add_command(unsigned char c)
+void add_command(unsigned char c, int is_sfx)
 {
   int chn, typ;
   // if (c & 0x80)
@@ -311,39 +314,25 @@ void empty_data(void)
 //   );
 // }
 
-//====================================================================
-// メイン処理
-//====================================================================
-int main(int argc, char *argv[])
+// argcが4以外はメッセージを出力し、戻り値がTRUEになる
+int checkArgc(int argc)
 {
-  // unsigned int i;
-  // int c;
-  // int leave = 0;
-  // int fatal = 0;
-  // int ss;
-  // int fs;
-  // int latched_chn = 0;
-  // int first_byte = TRUE;
-  unsigned int file_signature;
-  unsigned int frame_rate;
-  int sample_divider = 735; // NTSC (default)
+  int result = FALSE;
 
-  printf("*** sverx's VGM to PSG converter ***\n");
-
-  if (argc > 4)
+  if ((argc <= 2) || (argc >= 5))
   {
-    // 致命的エラー：指定されたパラメータが多すぎます。最大で3つまでしか指定できません。
-    printf("Fatal: too many parameters specified. Three parameters at max are allowed.\n");
-  }
+    if (argc >= 5)
+    {
+      // 致命的エラー：指定されたパラメータが多すぎます。最大で3つまでしか指定できません。
+      printf("Fatal: too many parameters specified. Three parameters at max are allowed.\n");
+    }
 
-  if (argc < 3)
-  {
-    // 致命的エラー：指定されたパラメータが少なすぎます。少なくとも2つのパラメータが必要です。
-    printf("Fatal: too few parameters specified. At least two parameters are required.\n");
-  }
+    if (argc <= 2)
+    {
+      // 致命的エラー：指定されたパラメータが少なすぎます。少なくとも2つのパラメータが必要です。
+      printf("Fatal: too few parameters specified. At least two parameters are required.\n");
+    }
 
-  if ((argc < 3) || (argc > 4))
-  {
     // 使用方法：vgm2psg 入力ファイル.VGM 出力ファイル.PSG [[0][1][2][3]]
     printf("Usage: vgm2psg inputfile.VGM outputfile.PSG [[0][1][2][3]]\n");
     // 【オプション】SFX（効果音）を変換する際、3番目のパラメータで有効にするチャンネルを指定します。例：
@@ -360,11 +349,21 @@ int main(int argc, char *argv[])
     printf("  23 means the SFX is using both channel 2 and channel 3 (noise)\n");
     // 123 は、その SFX がチャンネル1、チャンネル2、およびチャンネル3（ノイズ）を使用していることを意味します。
     printf(" 123 means the SFX is using channels 1 and 2 and channel 3 (noise)\n");
-    return (1);
+    
+    result = TRUE;
   }
+
+  return result;
+}
+
+// sfxかどうか
+int checkSFX(int argc, char *argv[])
+{
+  int is_sfx = FALSE;
 
   if (argc == 4)
   {
+    // activeの初期化
     for (unsigned int i = 0; i < CHANNELS; i++)
     {
       active[i] = FALSE;
@@ -372,6 +371,8 @@ int main(int argc, char *argv[])
 
     for (unsigned int i = 0; i < strlen(argv[3]); i++)
     {
+      printf("argv[3][%d]=%c\n", i, argv[3][i]);
+
       switch (argv[3][i])
       {
       case '0':
@@ -405,6 +406,38 @@ int main(int argc, char *argv[])
     }
   }
 
+  return is_sfx;
+}
+
+//====================================================================
+// メイン処理
+//====================================================================
+int main(int argc, char *argv[])
+{
+  // unsigned int i;
+  // int c;
+  // int leave = 0;
+  // int fatal = 0;
+  // int ss;
+  // int fs;
+  // int latched_chn = 0;
+  // int first_byte = TRUE;
+  // unsigned int file_signature;
+  // unsigned int frame_rate;
+  // int sample_divider = 735; // NTSC (default)
+
+  printf("*** sverx's VGM to PSG converter ***\n");
+
+  if(checkArgc(argc))
+  {
+    return (1);
+  }
+
+  // ここの時点でargcは3か4
+
+  int is_sfx = checkSFX(argc, argv);
+
+
   // init_frame(TRUE);
   init_frame();
   frame_started = TRUE;
@@ -417,48 +450,63 @@ int main(int argc, char *argv[])
     return (1);
   }
 
-  // 4バイト読み込み
-  gzread(fIN, &file_signature, 4);
-  if (file_signature != 0x206d6756)
+  // VGMファイルかどうかのチェック
   {
-    // check for 'Vgm ' file signature
-    // 致命的エラー：入力ファイルが有効なVGM/VGZファイルではないようです。
-    printf("Fatal: input file doesn't seem a valid VGM/VGZ file\n");
-    return (1);
-  }
+    unsigned int file_signature;
 
-  // seek to FRAMERATE in the VGM header
-  // 圧縮ファイル内の読み取り位置を移動
-  gzseek(
-    fIN,  // 対象のファイル（入力ファイル）
-    VGM_HEADER_FRAMERATE, //  0x24バイト目の位置まで読み取り位置を移動
-    SEEK_SET  // ファイルの先頭からの位置を基準にする
-  );
+    // 4バイト読み込み
+    gzread(
+      fIN, 
+      &file_signature,
+      4
+    );
+
+    if (file_signature != 0x206d6756)
+    {
+      // check for 'Vgm ' file signature
+      // 致命的エラー：入力ファイルが有効なVGM/VGZファイルではないようです。
+      printf("Fatal: input file doesn't seem a valid VGM/VGZ file\n");
+      return (1);
+    }
+  }
 
   //===========================================
   // read frame_rate
-  gzread(
-    fIN, 
-    &frame_rate, // 読み込んだデータを格納する場所（メモリ）
-    4
-  );
+  int sample_divider = NTSC; // NTSC (default)
+  {
+    // seek to FRAMERATE in the VGM header
+    // 圧縮ファイル内の読み取り位置を移動
+    gzseek(
+      fIN,  // 対象のファイル（入力ファイル）
+      VGM_HEADER_FRAMERATE, //  0x24バイト目の位置まで読み取り位置を移動
+      SEEK_SET  // ファイルの先頭からの位置を基準にする
+    );
 
-  if (frame_rate == 60)
-  {
-    printf("Info: NTSC (60Hz) VGM detected\n");
-  }
-  else if (frame_rate == 50)
-  {
-    printf("Info: PAL (50Hz) VGM detected\n");
-    sample_divider = 882; // PAL!
-  }
-  else
-  {
-    printf("Warning: unknown frame rate, assuming NTSC (60Hz)\n");
+    unsigned int frame_rate;
+    gzread(
+      fIN, 
+      &frame_rate, // 読み込んだデータを格納する場所（メモリ）
+      4
+    );
+
+    if (frame_rate == 60)
+    {
+      printf("Info: NTSC (60Hz) VGM detected\n");
+      sample_divider = NTSC; // NTSC
+    }
+    else if (frame_rate == 50)
+    {
+      printf("Info: PAL (50Hz) VGM detected\n");
+      sample_divider = PAL; // PAL!
+    }
+    else
+    {
+      printf("Warning: unknown frame rate, assuming NTSC (60Hz)\n");
+      sample_divider = NTSC; // NTSC
+    }
   }
   // read frame_rate
   //===========================================
-
 
   //===========================================
   // seek to LOOPPOINT in the VGM header
@@ -663,10 +711,10 @@ int main(int argc, char *argv[])
         // if ((first_byte) && ((c & 0x80) == 0))
         if ((first_byte) && ((input_data2 & 0b1000'0000) == 0))
         {
-          add_command(lastlatch);
+          add_command(lastlatch, is_sfx);
           printf("Warning: added missing latch command in frame start\n");
         }
-        add_command(input_data2);
+        add_command(input_data2, is_sfx);
         first_byte = FALSE;
       }
 
