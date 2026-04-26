@@ -317,13 +317,13 @@ void empty_data(void)
 int main(int argc, char *argv[])
 {
   // unsigned int i;
-  int c;
-  int leave = 0;
-  int fatal = 0;
-  int ss;
-  int fs;
-  int latched_chn = 0;
-  int first_byte = TRUE;
+  // int c;
+  // int leave = 0;
+  // int fatal = 0;
+  // int ss;
+  // int fs;
+  // int latched_chn = 0;
+  // int first_byte = TRUE;
   unsigned int file_signature;
   unsigned int frame_rate;
   int sample_divider = 735; // NTSC (default)
@@ -515,8 +515,8 @@ int main(int argc, char *argv[])
 
     // note: some VGMs can have zero in the data_offset field and have 256 bytes long header instead of 64, filled with zeroes. We do a quick check here.
     // 注：一部のVGMでは、data_offset フィールドが 0 の場合があり、その場合ヘッダは 64バイトではなく 256バイトで、残りはゼロで埋められています。ここではその簡易チェックを行います。
-    c = gzgetc(fIN);
-    if (c == 0)
+    int input_data = gzgetc(fIN);
+    if (input_data == 0)
     {
       // 警告：不正な形式のVGMです。できる限り処理を試みます。
       printf("Warning: malformed VGM, will try my best\n");
@@ -564,9 +564,12 @@ int main(int argc, char *argv[])
     return (1);
   }
 
+  int leave = 0;
+  int fatal = 0;
+  int first_byte = TRUE;
   while ((!leave) && (!gzeof(fIN)))
   {
-    c = gzgetc(fIN);
+    int input_data = gzgetc(fIN);
 
     // loop_offsetを-1している
     // decLoopOffset(1);
@@ -583,13 +586,15 @@ int main(int argc, char *argv[])
       );
     }
 
-    switch (c)
+    switch (input_data)
     {
 
     case VGM_GGSTEREO:  // 0x4F
+    {
       // stereo data byte follows
+      // ステレオデータのバイトが続きます
       // BETA: this is simply DISCARDED atm
-      c = gzgetc(fIN);
+      int input_data2 = gzgetc(fIN);
       printf("Warning: GameGear stereo info discarded\n");
       // decLoopOffset(1);
       loop_offset -= 1;
@@ -604,11 +609,12 @@ int main(int argc, char *argv[])
         );
       }
       break;
-
+    }
     case VGM_FMFOLLOWS: // 0x51
+    {
       // discard this!
-      c = gzgetc(fIN);
-      c = gzgetc(fIN);
+      int input_data2 = gzgetc(fIN);
+      int input_data3 = gzgetc(fIN);
       printf("Warning: FM chip write discarded\n");
       // decLoopOffset(2);
       loop_offset -= 2;
@@ -623,24 +629,26 @@ int main(int argc, char *argv[])
         );
       }
       break;
-
+    }
     case VGM_PSGFOLLOWS:  // 0x50
+    {
       // PSG byte follows
 
-      c = gzgetc(fIN);
+      int input_data2 = gzgetc(fIN);
+      int latched_chn = 0;
 
       // if (c & 0x80)
-      if (c & 0b1000'0000)  // ラッチデータ
+      if (input_data2 & 0b1000'0000)  // ラッチデータ
       {
-        lastlatch = c;                 // latch value
+        lastlatch = input_data2;                 // latch value
         // latched_chn = (c & 0x60) >> 5; // isolate chn number
-        latched_chn = (c & 0b0110'0000) >> 5; // isolate chn number
+        latched_chn = (input_data2 & 0b0110'0000) >> 5; // isolate chn number
       }
       else
       {
         // ラッチデータではない
         // c |= 0x40; // make sure DATA bytes have 1 as 6th bit
-        c |= 0b0100'0000; // make sure DATA bytes have 1 as 6th bit
+        input_data2 |= 0b0100'0000; // make sure DATA bytes have 1 as 6th bit
       }
 
       if (
@@ -653,12 +661,12 @@ int main(int argc, char *argv[])
         found_frame();
 
         // if ((first_byte) && ((c & 0x80) == 0))
-        if ((first_byte) && ((c & 0b1000'0000) == 0))
+        if ((first_byte) && ((input_data2 & 0b1000'0000) == 0))
         {
           add_command(lastlatch);
           printf("Warning: added missing latch command in frame start\n");
         }
-        add_command(c);
+        add_command(input_data2);
         first_byte = FALSE;
       }
 
@@ -676,20 +684,22 @@ int main(int argc, char *argv[])
       }
 
       break;
-
+    }
     case VGM_FRAMESKIP_NTSC: // 0x62 待つ
     case VGM_FRAMESKIP_PAL:  // 0x63 待つ
-
+    {
       // frame skip, now count how many
       found_pause();
 
-      fs = 1;
+      int input_data2 = 0;
+
+      int fs = 1;
       do
       {
-        c = gzgetc(fIN);
+        input_data2 = gzgetc(fIN);
         if (
-           (c == VGM_FRAMESKIP_NTSC) // 0x62
-        || (c == VGM_FRAMESKIP_PAL)  // 0x63
+           (input_data2 == VGM_FRAMESKIP_NTSC) // 0x62
+        || (input_data2 == VGM_FRAMESKIP_PAL)  // 0x63
         )
         {
           fs++;
@@ -700,19 +710,19 @@ int main(int argc, char *argv[])
       while (
         (fs < MAX_WAIT) // 7
         && (
-          (c == VGM_FRAMESKIP_NTSC)   // 0x62
-          || (c == VGM_FRAMESKIP_PAL) // 0x63
+          (input_data2 == VGM_FRAMESKIP_NTSC)   // 0x62
+          || (input_data2 == VGM_FRAMESKIP_PAL) // 0x63
         )
         // && (!checkLoopOffset())
         && (loop_offset != 0)
       );
 
       if (
-        (c != VGM_FRAMESKIP_NTSC)   // 0x62
-        && (c != VGM_FRAMESKIP_PAL) // 0x63
+        (input_data2 != VGM_FRAMESKIP_NTSC)   // 0x62
+        && (input_data2 != VGM_FRAMESKIP_PAL) // 0x63
       )
       {
-        gzungetc(c, fIN);
+        gzungetc(input_data2, fIN); // 1バイト戻す
         // incLoopOffset();
         loop_offset++;
       }
@@ -732,19 +742,20 @@ int main(int argc, char *argv[])
       first_byte = TRUE;
 
       break;
-
+    }
     case VGM_SAMPLESKIP:  // 0x61
+    {
       // sample skip, now count how many
 
       found_pause();
 
-      c = gzgetc(fIN);
-      ss = c;
-      c = gzgetc(fIN);
-      ss += c * 256;
+      int input_data2 = gzgetc(fIN);
+      int ss = input_data2;
+      int input_data3 = gzgetc(fIN);
+      ss += input_data3 * 256;
 
       // samples to frames
-      fs = ss / sample_divider;
+      int fs = ss / sample_divider;
 
       if ((ss % sample_divider) != 0)
       {
@@ -774,7 +785,7 @@ int main(int argc, char *argv[])
       first_byte = TRUE;
 
       break;
-
+    }
     case VGM_ENDOFDATA: // 0x66
       // end of data
       leave = 1;
@@ -803,13 +814,13 @@ int main(int argc, char *argv[])
     default:
       // Drop compact (1 to 16) sample skip command
       // if ((c & 0xf0) == VGM_SAMPLESKIP_7N)  // 0x70
-      if ((c & 0b1111'0000) == 0b0111'0000)  // 0x70
+      if ((input_data & 0b1111'0000) == 0b0111'0000)  // 0x70
       {
         printf("Warning: pause length isn't perfectly frame sync'd\n");
         break;
       }
 
-      printf("Fatal: found unknown char 0x%02x\n", c);
+      printf("Fatal: found unknown char 0x%02x\n", input_data);
       leave = 1;
       fatal = 1;
       break;
