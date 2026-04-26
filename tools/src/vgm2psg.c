@@ -32,9 +32,9 @@
 const int NTSC = 735;
 const int PAL = 882;
 
-unsigned int loop_offset;
-unsigned int data_offset;
-gzFile fIN;
+// unsigned int loop_offset;
+// unsigned int data_offset;
+// gzFile fIN;
 FILE *fOUT;
 
 // Start volume and frequencies to impossible values, to make
@@ -363,11 +363,11 @@ int checkSFX(int argc, char *argv[])
 
   if (argc == 4)
   {
-    // activeの初期化
-    for (unsigned int i = 0; i < CHANNELS; i++)
-    {
-      active[i] = FALSE;
-    }
+    // activeの初期化（不要）
+    // for (unsigned int i = 0; i < CHANNELS; i++)
+    // {
+    //   active[i] = FALSE;
+    // }
 
     for (unsigned int i = 0; i < strlen(argv[3]); i++)
     {
@@ -401,6 +401,7 @@ int checkSFX(int argc, char *argv[])
       || active[3] == FALSE
     )
     {
+      // 1つでもFALSEならSFXとする
       is_sfx = TRUE;
       printf("Info: SFX conversion on channel(s): %s%s%s%s\n", active[0] ? "0" : "_", active[1] ? "1" : "_", active[2] ? "2" : "_", active[3] ? "3" : "_");
     }
@@ -409,107 +410,73 @@ int checkSFX(int argc, char *argv[])
   return is_sfx;
 }
 
-//====================================================================
-// メイン処理
-//====================================================================
-int main(int argc, char *argv[])
+int isVGM(gzFile fIN)
 {
-  // unsigned int i;
-  // int c;
-  // int leave = 0;
-  // int fatal = 0;
-  // int ss;
-  // int fs;
-  // int latched_chn = 0;
-  // int first_byte = TRUE;
-  // unsigned int file_signature;
-  // unsigned int frame_rate;
-  // int sample_divider = 735; // NTSC (default)
+  int result = FALSE;
 
-  printf("*** sverx's VGM to PSG converter ***\n");
+  unsigned int file_signature;
 
-  if(checkArgc(argc))
+  // 4バイト読み込み
+  gzread(
+    fIN, 
+    &file_signature,
+    4
+  );
+
+  if (file_signature != 0x206d6756) // ファイルの先頭が "Vgm " という文字列かどうか
   {
-    return (1);
+    // check for 'Vgm ' file signature
+    // 致命的エラー：入力ファイルが有効なVGM/VGZファイルではないようです。
+    printf("Fatal: input file doesn't seem a valid VGM/VGZ file\n");
+    // return (1);
+    result = TRUE;
   }
+  
+  return result;
+}
 
-  // ここの時点でargcは3か4
-
-  int is_sfx = checkSFX(argc, argv);
-
-
-  // init_frame(TRUE);
-  init_frame();
-  frame_started = TRUE;
-
-  // ファイルオープン
-  fIN = gzopen(argv[1], "rb");
-  if (!fIN)
-  {
-    printf("Fatal: can't open input VGM file\n");
-    return (1);
-  }
-
-  // VGMファイルかどうかのチェック
-  {
-    unsigned int file_signature;
-
-    // 4バイト読み込み
-    gzread(
-      fIN, 
-      &file_signature,
-      4
-    );
-
-    if (file_signature != 0x206d6756)
-    {
-      // check for 'Vgm ' file signature
-      // 致命的エラー：入力ファイルが有効なVGM/VGZファイルではないようです。
-      printf("Fatal: input file doesn't seem a valid VGM/VGZ file\n");
-      return (1);
-    }
-  }
-
-  //===========================================
-  // read frame_rate
+int getSampleDivider(gzFile fIN)
+{
   int sample_divider = NTSC; // NTSC (default)
+
+  // seek to FRAMERATE in the VGM header
+  // 圧縮ファイル内の読み取り位置を移動
+  gzseek(
+    fIN,  // 対象のファイル（入力ファイル）
+    VGM_HEADER_FRAMERATE, //  0x24バイト目の位置まで読み取り位置を移動
+    SEEK_SET  // ファイルの先頭からの位置を基準にする
+  );
+
+  unsigned int frame_rate;
+  gzread(
+    fIN, 
+    &frame_rate, // 読み込んだデータを格納する場所（メモリ）
+    4
+  );
+
+  if (frame_rate == 60)
   {
-    // seek to FRAMERATE in the VGM header
-    // 圧縮ファイル内の読み取り位置を移動
-    gzseek(
-      fIN,  // 対象のファイル（入力ファイル）
-      VGM_HEADER_FRAMERATE, //  0x24バイト目の位置まで読み取り位置を移動
-      SEEK_SET  // ファイルの先頭からの位置を基準にする
-    );
-
-    unsigned int frame_rate;
-    gzread(
-      fIN, 
-      &frame_rate, // 読み込んだデータを格納する場所（メモリ）
-      4
-    );
-
-    if (frame_rate == 60)
-    {
-      printf("Info: NTSC (60Hz) VGM detected\n");
-      sample_divider = NTSC; // NTSC
-    }
-    else if (frame_rate == 50)
-    {
-      printf("Info: PAL (50Hz) VGM detected\n");
-      sample_divider = PAL; // PAL!
-    }
-    else
-    {
-      printf("Warning: unknown frame rate, assuming NTSC (60Hz)\n");
-      sample_divider = NTSC; // NTSC
-    }
+    printf("Info: NTSC (60Hz) VGM detected\n");
+    sample_divider = NTSC; // NTSC
   }
-  // read frame_rate
-  //===========================================
+  else if (frame_rate == 50)
+  {
+    printf("Info: PAL (50Hz) VGM detected\n");
+    sample_divider = PAL; // PAL!
+  }
+  else
+  {
+    printf("Warning: unknown frame rate, assuming NTSC (60Hz)\n");
+    sample_divider = NTSC; // NTSC
+  }
 
-  //===========================================
-  // seek to LOOPPOINT in the VGM header
+  return sample_divider;
+}
+
+unsigned int getLoopOffset(gzFile fIN)
+{
+  unsigned int loop_offset;
+
   gzseek(
     fIN, 
     VGM_HEADER_LOOPPOINT, // 0x1Cバイト目の位置まで読み取り位置を移動
@@ -522,11 +489,14 @@ int main(int argc, char *argv[])
     &loop_offset,
     4
   );
-  // seek to LOOPPOINT in the VGM header
-  //===========================================
 
-  //===========================================
-  // seek to DATAOFFSET in the VGM header
+  return loop_offset;
+}
+
+unsigned int getDataOffset(gzFile fIN)
+{
+  unsigned int data_offset;
+
   gzseek(
     fIN, 
     VGM_DATA_OFFSET,  // 0x34バイト目の位置まで読み取り位置を移動
@@ -539,8 +509,52 @@ int main(int argc, char *argv[])
     &data_offset, 
     4
   );
-  // seek to DATAOFFSET in the VGM header
-  //===========================================
+
+  return data_offset;
+}
+
+//====================================================================
+// メイン処理
+//====================================================================
+int main(int argc, char *argv[])
+{
+  printf("*** sverx's VGM to PSG converter ***\n");
+
+  // argcのチェック
+  if(checkArgc(argc))
+  {
+    // 引数の数が想定外の場合は終了
+    return (1);
+  }
+
+  // SFXかどうか
+  int is_sfx = checkSFX(argc, argv);
+
+  // init_frame();  // 不要
+  // frame_started = TRUE;  // 不要
+
+  // ファイルオープン
+  gzFile fIN = gzopen(argv[1], "rb");
+  if (!fIN)
+  {
+    printf("Fatal: can't open input VGM file\n");
+    return (1);
+  }
+
+  // VGMファイルかどうかのチェック
+  if (isVGM(fIN))
+  {
+    return (1);
+  }
+
+  // NTSCかPALか
+  int sample_divider = getSampleDivider(fIN);
+
+  // 
+  unsigned int loop_offset = getLoopOffset(fIN);
+
+  //
+  unsigned int data_offset = getDataOffset(fIN);
 
   if (data_offset != 0)
   {
