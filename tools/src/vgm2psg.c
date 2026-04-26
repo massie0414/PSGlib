@@ -71,16 +71,17 @@ int warn_32 = FALSE;
 //   return (loop_offset == 0);
 // }
 
-void init_frame(int initial_state)
+// void init_frame(int initial_state)
+void init_frame()
 {
-  int i;
-  for (i = 0; i < CHANNELS; i++)
+  // int i;
+  for (int i = 0; i < CHANNELS; i++)
   {
     volume_change[i] = FALSE;
     freq_change[i] = FALSE;
     hi_freq_change[i] = FALSE;
   }
-  frame_started = initial_state;
+  // frame_started = initial_state;
 }
 
 void add_command(unsigned char c)
@@ -264,7 +265,9 @@ void found_pause(void)
   if (frame_started)
   {
     dump_frame();
-    init_frame(FALSE);
+    // init_frame(FALSE);
+    init_frame();
+    frame_started = FALSE;
   }
   pause_started = TRUE;
 }
@@ -292,7 +295,9 @@ void empty_data(void)
   else if (frame_started)
   {
     dump_frame();
-    init_frame(FALSE);
+    // init_frame(FALSE);
+    init_frame();
+    frame_started = FALSE;
   }
 }
 
@@ -311,7 +316,7 @@ void empty_data(void)
 //====================================================================
 int main(int argc, char *argv[])
 {
-  unsigned int i;
+  // unsigned int i;
   int c;
   int leave = 0;
   int fatal = 0;
@@ -360,12 +365,12 @@ int main(int argc, char *argv[])
 
   if (argc == 4)
   {
-    for (i = 0; i < CHANNELS; i++)
+    for (unsigned int i = 0; i < CHANNELS; i++)
     {
       active[i] = FALSE;
     }
 
-    for (i = 0; i < strlen(argv[3]); i++)
+    for (unsigned int i = 0; i < strlen(argv[3]); i++)
     {
       switch (argv[3][i])
       {
@@ -400,7 +405,9 @@ int main(int argc, char *argv[])
     }
   }
 
-  init_frame(TRUE);
+  // init_frame(TRUE);
+  init_frame();
+  frame_started = TRUE;
 
   // ファイルオープン
   fIN = gzopen(argv[1], "rb");
