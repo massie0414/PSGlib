@@ -35,7 +35,7 @@ const int PAL = 882;
 // unsigned int loop_offset;
 // unsigned int data_offset;
 // gzFile fIN;
-FILE *fOUT;
+// FILE *fOUT;
 
 // Start volume and frequencies to impossible values, to make
 // sure initial commands are not skipped.
@@ -169,7 +169,7 @@ void add_command(unsigned char c, int is_sfx)
 }
 
 // 1フレーム分の音データを出力する関数
-void dump_frame(void)
+void dump_frame(FILE* fOUT)
 {
   int i;
   unsigned char c;
@@ -237,7 +237,7 @@ void dump_frame(void)
   }
 }
 
-void dump_pause(void)
+void dump_pause(FILE* fOUT)
 {
   if (pause_len > 0)
   {
@@ -263,11 +263,11 @@ void dump_pause(void)
   }
 }
 
-void found_pause(void)
+void found_pause(FILE* fOUT)
 {
   if (frame_started)
   {
-    dump_frame();
+    dump_frame(fOUT);
     // init_frame(FALSE);
     init_frame();
     frame_started = FALSE;
@@ -275,11 +275,11 @@ void found_pause(void)
   pause_started = TRUE;
 }
 
-void found_frame(void)
+void found_frame(FILE* fOUT)
 {
   if (pause_started)
   {
-    dump_pause();
+    dump_pause(fOUT);
   }
   frame_started = TRUE;
 
@@ -287,17 +287,17 @@ void found_frame(void)
   pause_len = 0;
 }
 
-void empty_data(void)
+void empty_data(FILE* fOUT)
 {
   if (pause_started)
   {
-    dump_pause();
+    dump_pause(fOUT);
     pause_len = 0;
     pause_started = FALSE;
   }
   else if (frame_started)
   {
-    dump_frame();
+    dump_frame(fOUT);
     // init_frame(FALSE);
     init_frame();
     frame_started = FALSE;
@@ -541,6 +541,13 @@ int main(int argc, char *argv[])
     return (1);
   }
 
+  FILE* fOUT = fopen(argv[2], "wb");
+  if (!fOUT)
+  {
+    printf("Fatal: can't write to output PSG file\n");
+    return (1);
+  }
+
   // VGMファイルかどうかのチェック
   if (isVGM(fIN))
   {
@@ -619,13 +626,6 @@ int main(int argc, char *argv[])
     loop_offset = -1;
   }
 
-  fOUT = fopen(argv[2], "wb");
-  if (!fOUT)
-  {
-    printf("Fatal: can't write to output PSG file\n");
-    return (1);
-  }
-
   int leave = 0;
   int fatal = 0;
   int first_byte = TRUE;
@@ -641,7 +641,7 @@ int main(int argc, char *argv[])
     if (loop_offset == 0)
     {
       // writeLoopMarker();
-      empty_data();
+      empty_data(fOUT);
       fputc(
         PSG_LOOPMARKER, // 0x01
         fOUT
@@ -664,7 +664,7 @@ int main(int argc, char *argv[])
       if (loop_offset == 0)
       {
         // writeLoopMarker();
-        empty_data();
+        empty_data(fOUT);
         fputc(
           PSG_LOOPMARKER, // 0x01
           fOUT
@@ -684,7 +684,7 @@ int main(int argc, char *argv[])
       if (loop_offset == 0)
       {
         // writeLoopMarker();
-        empty_data();
+        empty_data(fOUT);
         fputc(
           PSG_LOOPMARKER, // 0x01
           fOUT
@@ -720,7 +720,7 @@ int main(int argc, char *argv[])
       {
         // output only if on an active channel
 
-        found_frame();
+        found_frame(fOUT);
 
         // if ((first_byte) && ((c & 0x80) == 0))
         if ((first_byte) && ((input_data2 & 0b1000'0000) == 0))
@@ -738,7 +738,7 @@ int main(int argc, char *argv[])
       if (loop_offset == 0)
       {
         // writeLoopMarker();
-        empty_data();
+        empty_data(fOUT);
         fputc(
           PSG_LOOPMARKER, // 0x01
           fOUT
@@ -751,7 +751,7 @@ int main(int argc, char *argv[])
     case VGM_FRAMESKIP_PAL:  // 0x63 待つ
     {
       // frame skip, now count how many
-      found_pause();
+      found_pause(fOUT);
 
       int input_data2 = 0;
 
@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
       else if (loop_offset == 0)
       {
         // writeLoopMarker();
-        empty_data();
+        empty_data(fOUT);
         fputc(
           PSG_LOOPMARKER, // 0x01
           fOUT
@@ -809,7 +809,7 @@ int main(int argc, char *argv[])
     {
       // sample skip, now count how many
 
-      found_pause();
+      found_pause(fOUT);
 
       int input_data2 = gzgetc(fIN);
       int ss = input_data2;
@@ -837,7 +837,7 @@ int main(int argc, char *argv[])
       if (loop_offset == 0)
       {
         // writeLoopMarker();
-        empty_data();
+        empty_data(fOUT);
         fputc(
           PSG_LOOPMARKER, // 0x01
           fOUT
@@ -857,14 +857,14 @@ int main(int argc, char *argv[])
       if (loop_offset == 0)
       {
         // writeLoopMarker();
-        empty_data();
+        empty_data(fOUT);
         fputc(
           PSG_LOOPMARKER, // 0x01
           fOUT
         );
       }
 
-      empty_data();
+      empty_data(fOUT);
 
       fputc(
         PSG_ENDOFDATA,  // 0x00
