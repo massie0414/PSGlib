@@ -51,7 +51,8 @@ int pause_len = 0;
 
 // latch volume silent on channel 0
 // チャンネル0の音量を無音としてラッチする
-unsigned char lastlatch = 0x9F;
+// unsigned char lastlatch = 0x9F;
+unsigned char lastlatch = 0b1001'1111;
 
 int active[CHANNELS] = {FALSE, FALSE, FALSE, FALSE};
 // int is_sfx = FALSE;
@@ -473,9 +474,12 @@ int getSampleDivider(gzFile fIN)
   return sample_divider;
 }
 
-unsigned int getLoopOffset(gzFile fIN)
+unsigned int getLoopOffset(
+  gzFile fIN,
+  unsigned int data_offset
+)
 {
-  unsigned int loop_offset;
+  unsigned int loop_offset = 0;
 
   gzseek(
     fIN, 
@@ -490,12 +494,28 @@ unsigned int getLoopOffset(gzFile fIN)
     4
   );
 
+  if (loop_offset != 0)
+  {
+    printf("Info: loop point at 0x%08x\n", loop_offset);
+    loop_offset = 
+        loop_offset
+      + VGM_HEADER_LOOPPOINT // 0x1C
+      - data_offset;
+  }
+  else
+  {
+    printf("Info: no loop point defined\n");
+
+    // make it negative so that won't happen
+    loop_offset = -1;
+  }
+
   return loop_offset;
 }
 
 unsigned int getDataOffset(gzFile fIN)
 {
-  unsigned int data_offset;
+  unsigned int data_offset = 0;
 
   gzseek(
     fIN, 
@@ -509,59 +529,6 @@ unsigned int getDataOffset(gzFile fIN)
     &data_offset, 
     4
   );
-
-  return data_offset;
-}
-
-//====================================================================
-// メイン処理
-//====================================================================
-int main(int argc, char *argv[])
-{
-  printf("*** sverx's VGM to PSG converter ***\n");
-
-  // argcのチェック
-  if(checkArgc(argc))
-  {
-    // 引数の数が想定外の場合は終了
-    return (1);
-  }
-
-  // SFXかどうか
-  int is_sfx = checkSFX(argc, argv);
-
-  // init_frame();  // 不要
-  // frame_started = TRUE;  // 不要
-
-  // ファイルオープン
-  gzFile fIN = gzopen(argv[1], "rb");
-  if (!fIN)
-  {
-    printf("Fatal: can't open input VGM file\n");
-    return (1);
-  }
-
-  FILE* fOUT = fopen(argv[2], "wb");
-  if (!fOUT)
-  {
-    printf("Fatal: can't write to output PSG file\n");
-    return (1);
-  }
-
-  // VGMファイルかどうかのチェック
-  if (isVGM(fIN))
-  {
-    return (1);
-  }
-
-  // NTSCかPALか
-  int sample_divider = getSampleDivider(fIN);
-
-  // 
-  unsigned int loop_offset = getLoopOffset(fIN);
-
-  //
-  unsigned int data_offset = getDataOffset(fIN);
 
   if (data_offset != 0)
   {
@@ -610,43 +577,187 @@ int main(int argc, char *argv[])
     }
   }
 
-  if (loop_offset != 0)
+  return data_offset;
+}
+
+unsigned int GGStereo(gzFile fIN, FILE* fOUT, unsigned int loop_offset)
+{
+  int input_data2 = gzgetc(fIN);
+  printf("Warning: GameGear stereo info discarded\n");
+  // decLoopOffset(1);
+  loop_offset -= 1;
+  // if (checkLoopOffset())
+  if (loop_offset == 0)
   {
-    printf("Info: loop point at 0x%08x\n", loop_offset);
-    loop_offset = 
-        loop_offset
-      + VGM_HEADER_LOOPPOINT // 0x1C
-      - data_offset;
+    // writeLoopMarker();
+    empty_data(fOUT);
+    fputc(
+      PSG_LOOPMARKER, // 0x01
+      fOUT
+    );
+  }
+  return loop_offset;
+}
+
+unsigned int fmFollows(gzFile fIN, FILE* fOUT, unsigned int loop_offset)
+{
+  int input_data2 = gzgetc(fIN);
+  int input_data3 = gzgetc(fIN);
+  printf("Warning: FM chip write discarded\n");
+  // decLoopOffset(2);
+  loop_offset -= 2;
+  // if (checkLoopOffset())
+  if (loop_offset == 0)
+  {
+    // writeLoopMarker();
+    empty_data(fOUT);
+    fputc(
+      PSG_LOOPMARKER, // 0x01
+      fOUT
+    );
+  }
+  return loop_offset;
+}
+
+void psgFollows(
+  gzFile fIN, 
+  FILE* fOUT, 
+  int is_sfx,
+  int *first_byte,
+  unsigned int *loop_offset
+)
+{
+  int input_data2 = gzgetc(fIN);
+  int latched_chn = 0;
+
+  // if (c & 0x80)
+  if (input_data2 & 0b1000'0000)  // ラッチデータ
+  {
+    lastlatch = input_data2;                 // latch value
+    // latched_chn = (c & 0x60) >> 5; // isolate chn number
+    latched_chn = (input_data2 & 0b0110'0000) >> 5; // isolate chn number
   }
   else
   {
-    printf("Info: no loop point defined\n");
-
-    // make it negative so that won't happen
-    loop_offset = -1;
+    // ラッチデータではない
+    // c |= 0x40; // make sure DATA bytes have 1 as 6th bit
+    input_data2 |= 0b0100'0000; // make sure DATA bytes have 1 as 6th bit
   }
+
+  if (
+    (!is_sfx)
+      || (active[latched_chn])
+  )
+  {
+    // output only if on an active channel
+
+    found_frame(fOUT);
+
+    // if ((first_byte) && ((c & 0x80) == 0))
+    if ((first_byte) && ((input_data2 & 0b1000'0000) == 0))
+    {
+      add_command(lastlatch, is_sfx);
+      printf("Warning: added missing latch command in frame start\n");
+    }
+    add_command(input_data2, is_sfx);
+    first_byte = FALSE;
+  }
+
+  // decLoopOffset(1);
+  loop_offset -= 1;
+  // if (checkLoopOffset())
+  if (loop_offset == 0)
+  {
+    // writeLoopMarker();
+    empty_data(fOUT);
+    fputc(
+      PSG_LOOPMARKER, // 0x01
+      fOUT
+    );
+  }
+}
+
+//====================================================================
+// メイン処理
+//====================================================================
+int main(int argc, char *argv[])
+{
+  printf("*** sverx's VGM to PSG converter ***\n");
+
+  // argcのチェック
+  if(checkArgc(argc))
+  {
+    // 引数の数が想定外の場合は終了
+    return (1);
+  }
+
+  // SFXかどうか
+  int is_sfx = checkSFX(argc, argv);
+
+  // init_frame();  // 不要
+  // frame_started = TRUE;  // 不要
+
+  // ファイルオープン
+  gzFile fIN = gzopen(argv[1], "rb");
+  if (!fIN)
+  {
+    printf("Fatal: can't open input VGM file\n");
+    return (1);
+  }
+
+  FILE* fOUT = fopen(argv[2], "wb");
+  if (!fOUT)
+  {
+    printf("Fatal: can't write to output PSG file\n");
+    return (1);
+  }
+
+  // VGMファイルかどうかのチェック
+  if (isVGM(fIN))
+  {
+    return (1);
+  }
+
+  // NTSCかPALか
+  int sample_divider = getSampleDivider(fIN);
+
+  //
+  unsigned int data_offset = getDataOffset(fIN);
+
+  // 
+  unsigned int loop_offset = getLoopOffset(fIN, data_offset);
+
+  // seek
+  gzseek(
+    fIN, 
+    data_offset,
+    SEEK_SET
+  );
 
   int leave = 0;
   int fatal = 0;
   int first_byte = TRUE;
-  while ((!leave) && (!gzeof(fIN)))
+  while (
+    (leave == 0) 
+    && (!gzeof(fIN))  // ファイルが終わっているかどうか
+  )
   {
     int input_data = gzgetc(fIN);
 
-    // loop_offsetを-1している
-    // decLoopOffset(1);
     loop_offset -= 1;
 
-    // if (checkLoopOffset())
     if (loop_offset == 0)
     {
-      // writeLoopMarker();
       empty_data(fOUT);
       fputc(
         PSG_LOOPMARKER, // 0x01
         fOUT
       );
     }
+
+    printf("input_data: %d\n", input_data);
+    printf("loop_offset: %d\n", loop_offset);
+    printf("data_offset: 0x%X\n", data_offset);
 
     switch (input_data)
     {
@@ -656,94 +767,27 @@ int main(int argc, char *argv[])
       // stereo data byte follows
       // ステレオデータのバイトが続きます
       // BETA: this is simply DISCARDED atm
-      int input_data2 = gzgetc(fIN);
-      printf("Warning: GameGear stereo info discarded\n");
-      // decLoopOffset(1);
-      loop_offset -= 1;
-      // if (checkLoopOffset())
-      if (loop_offset == 0)
-      {
-        // writeLoopMarker();
-        empty_data(fOUT);
-        fputc(
-          PSG_LOOPMARKER, // 0x01
-          fOUT
-        );
-      }
+      loop_offset = GGStereo(fIN, fOUT, loop_offset);
+
       break;
     }
     case VGM_FMFOLLOWS: // 0x51
     {
       // discard this!
-      int input_data2 = gzgetc(fIN);
-      int input_data3 = gzgetc(fIN);
-      printf("Warning: FM chip write discarded\n");
-      // decLoopOffset(2);
-      loop_offset -= 2;
-      // if (checkLoopOffset())
-      if (loop_offset == 0)
-      {
-        // writeLoopMarker();
-        empty_data(fOUT);
-        fputc(
-          PSG_LOOPMARKER, // 0x01
-          fOUT
-        );
-      }
+      loop_offset = fmFollows(fIN, fOUT, loop_offset);
+
       break;
     }
     case VGM_PSGFOLLOWS:  // 0x50
     {
       // PSG byte follows
-
-      int input_data2 = gzgetc(fIN);
-      int latched_chn = 0;
-
-      // if (c & 0x80)
-      if (input_data2 & 0b1000'0000)  // ラッチデータ
-      {
-        lastlatch = input_data2;                 // latch value
-        // latched_chn = (c & 0x60) >> 5; // isolate chn number
-        latched_chn = (input_data2 & 0b0110'0000) >> 5; // isolate chn number
-      }
-      else
-      {
-        // ラッチデータではない
-        // c |= 0x40; // make sure DATA bytes have 1 as 6th bit
-        input_data2 |= 0b0100'0000; // make sure DATA bytes have 1 as 6th bit
-      }
-
-      if (
-        (!is_sfx)
-         || (active[latched_chn])
-      )
-      {
-        // output only if on an active channel
-
-        found_frame(fOUT);
-
-        // if ((first_byte) && ((c & 0x80) == 0))
-        if ((first_byte) && ((input_data2 & 0b1000'0000) == 0))
-        {
-          add_command(lastlatch, is_sfx);
-          printf("Warning: added missing latch command in frame start\n");
-        }
-        add_command(input_data2, is_sfx);
-        first_byte = FALSE;
-      }
-
-      // decLoopOffset(1);
-      loop_offset -= 1;
-      // if (checkLoopOffset())
-      if (loop_offset == 0)
-      {
-        // writeLoopMarker();
-        empty_data(fOUT);
-        fputc(
-          PSG_LOOPMARKER, // 0x01
-          fOUT
-        );
-      }
+      psgFollows(
+        fIN, 
+        fOUT, 
+        is_sfx,
+        &first_byte,
+        &loop_offset
+      );
 
       break;
     }
