@@ -63,8 +63,6 @@ void add_command(
   int is_sfx
 )
 {
-  // int chn;
-  // int typ;
   if (input_data & 0b1000'0000)
   {
     // ラッチデータ
@@ -107,30 +105,23 @@ void add_command(
   }
   else
   {
-    // it's a data (not a latch)
-    // chn = (lastlatch & 0x60) >> 5;
     int chn = (lastlatch & 0b0110'0000) >> 5;
-    // typ = (lastlatch & 0x10) >> 4;
     int typ = (lastlatch & 0b0001'0000) >> 4;
     if (typ == 1)
     {
-      // if (volume[chn] != (c & 0x0F))
       if (volume[chn] != (input_data & 0b0000'1111))
       {
         // see if we're really changing the volume or not
-        // volume[chn] = c & 0x0F;
         volume[chn] = input_data & 0b0000'1111;
         volume_change[chn] = TRUE;
       }
     }
     else
     {
-      // if ((c & 0x3F) != (freq[chn] >> 4))
       if ((input_data & 0b0011'1111) != (freq[chn] >> 4))
       {
         // see if we're really changing the high part of the frequency or not
         // 周波数の上位部分を実際に変更しているかどうかを確認する
-        // freq[chn] = (freq[chn] & 0x000F) | ((c & 0x3F) << 4);
         freq[chn] = (freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
         hi_freq_change[chn] = TRUE;
 
@@ -145,14 +136,12 @@ void add_command(
 // 1フレーム分の音データを出力する関数
 void dump_frame(FILE* fOUT)
 {
-  int i;
-  unsigned char c;
-  for (i = 0; i < CHANNELS - 1; i++)
+  for (int i = 0; i < CHANNELS - 1; i++)
   {
     if (freq_change[i])
     {
-      // c = (freq[i] & 0x0F) | (i << 5) | 0x80; // latch channel 0-2 freq
-      c = 0b1000'0000 | (i << 5) | (freq[i] & 0b0000'1111); // latch channel 0-2 freq
+      // latch channel 0-2 freq
+      unsigned char c = 0b1000'0000 | (i << 5) | (freq[i] & 0b0000'1111);
       
       fputc( 
         c, 
@@ -164,8 +153,7 @@ void dump_frame(FILE* fOUT)
         // DATA byte needed?
 
         // make sure DATA bytes have 1 as 6th bit
-        // c = (freq[i] >> 4) | 0x40;
-        c = 0b0100'0000 | (freq[i] >> 4);
+        unsigned char c = 0b0100'0000 | (freq[i] >> 4);
         fputc(
           c, 
           fOUT
@@ -176,8 +164,7 @@ void dump_frame(FILE* fOUT)
     if (volume_change[i])
     {
       // latch channel 0-2 volume
-      // c = 0x90 | (i << 5) | (volume[i] & 0x0F);
-      c = 0b1001'0000 | (i << 5) | (volume[i] & 0b0000'1111);
+      unsigned char c = 0b1001'0000 | (i << 5) | (volume[i] & 0b0000'1111);
       fputc(
         c, 
         fOUT
@@ -188,9 +175,7 @@ void dump_frame(FILE* fOUT)
   if (freq_change[3])
   {
     // latch channel 3 (noise)
-    // c = (freq[i] & 0x07) | 0xE0;
-    // c = (freq[i] & 0b0000'0111) | 0b1110'0000;
-    c = 0b1110'0000 | (freq[3] & 0b0000'0111);
+    unsigned char c = 0b1110'0000 | (freq[3] & 0b0000'0111);
     fputc(
       c, 
       fOUT
@@ -200,10 +185,7 @@ void dump_frame(FILE* fOUT)
   if (volume_change[3])
   {
     // latch channel 3 volume
-    // c = 0x90 | (i << 5) | (volume[3] & 0x0F);
-    // c = 0b1001'0000 | (i << 5) | (volume[3] & 0b0000'1111);
-    // c = 0b1001'0000 | 0b0110'0000 | (volume[3] & 0b0000'1111);
-    c = 0b1111'0000 | (volume[3] & 0b0000'1111);
+    unsigned char c = 0b1111'0000 | (volume[3] & 0b0000'1111);
     fputc(
       c,
       fOUT
@@ -211,6 +193,7 @@ void dump_frame(FILE* fOUT)
   }
 }
 
+// ポーズデータの出力
 void dump_pause(FILE* fOUT)
 {
   if (pause_len > 0)
@@ -235,14 +218,19 @@ void dump_pause(FILE* fOUT)
       );
     }
   }
+
+  pause_len = 0;
+  pause_started = FALSE;
 }
 
 void found_pause(FILE* fOUT)
 {
   if (frame_started)
   {
+    // 1フレーム分の音データを出力する関数
     dump_frame(fOUT);
-    // init_frame(FALSE);
+
+    // 初期化
     init_frame();
     frame_started = FALSE;
   }
@@ -253,20 +241,18 @@ void found_frame(FILE* fOUT)
 {
   if (pause_started)
   {
+    // ポーズデータの出力
     dump_pause(fOUT);
   }
   frame_started = TRUE;
-  pause_started = FALSE;
-  pause_len = 0;
 }
 
 void empty_data(FILE* fOUT)
 {
   if (pause_started)
   {
+    // ポーズデータの出力
     dump_pause(fOUT);
-    pause_len = 0;
-    pause_started = FALSE;
   }
   else if (frame_started)
   {
@@ -276,16 +262,6 @@ void empty_data(FILE* fOUT)
     frame_started = FALSE;
   }
 }
-
-// void writeLoopMarker(void)
-// {
-//   empty_data();
-
-//   fputc(
-//     PSG_LOOPMARKER, // 0x01
-//     fOUT
-//   );
-// }
 
 // argcが4以外はメッセージを出力し、戻り値がTRUEになる
 int checkArgc(int argc)
@@ -307,20 +283,21 @@ int checkArgc(int argc)
     }
 
     // 使用方法：vgm2psg 入力ファイル.VGM 出力ファイル.PSG [[0][1][2][3]]
-    printf("Usage: vgm2psg inputfile.VGM outputfile.PSG [[0][1][2][3]]\n");
     // 【オプション】SFX（効果音）を変換する際、3番目のパラメータで有効にするチャンネルを指定します。例：
-    printf(" [optional] when converting SFXs, the third parameter specifies which channel(s) should be active, examples:\n");
     // 0 は、その SFX がチャンネル0のみを使用していることを意味します。
-    printf("   0 means the SFX is using channel 0 only\n");
     // 1 は、その SFX がチャンネル1のみを使用していることを意味します。
-    printf("   1 means the SFX is using channel 1 only\n");
     // 2 は、その SFX がチャンネル2のみを使用していることを意味します。
-    printf("   2 means the SFX is using channel 2 only\n");
     // 3 は、その SFX がチャンネル3（ノイズ）のみを使用していることを意味します。
-    printf("   3 means the SFX is using channel 3 (noise) only\n");
     // 23 は、その SFX がチャンネル2とチャンネル3（ノイズ）の両方を使用していることを意味します。
-    printf("  23 means the SFX is using both channel 2 and channel 3 (noise)\n");
     // 123 は、その SFX がチャンネル1、チャンネル2、およびチャンネル3（ノイズ）を使用していることを意味します。
+
+    printf("Usage: vgm2psg inputfile.VGM outputfile.PSG [[0][1][2][3]]\n");
+    printf(" [optional] when converting SFXs, the third parameter specifies which channel(s) should be active, examples:\n");
+    printf("   0 means the SFX is using channel 0 only\n");
+    printf("   1 means the SFX is using channel 1 only\n");
+    printf("   2 means the SFX is using channel 2 only\n");
+    printf("   3 means the SFX is using channel 3 (noise) only\n");
+    printf("  23 means the SFX is using both channel 2 and channel 3 (noise)\n");
     printf(" 123 means the SFX is using channels 1 and 2 and channel 3 (noise)\n");
     
     result = TRUE;
@@ -336,12 +313,6 @@ int checkSFX(int argc, char *argv[])
 
   if (argc == 4)
   {
-    // activeの初期化（不要）
-    // for (unsigned int i = 0; i < CHANNELS; i++)
-    // {
-    //   active[i] = FALSE;
-    // }
-
     for (unsigned int i = 0; i < strlen(argv[3]); i++)
     {
       printf("argv[3][%d]=%c\n", i, argv[3][i]);
@@ -367,7 +338,6 @@ int checkSFX(int argc, char *argv[])
       }
     }
 
-    // if (!(active[0] && active[1] && active[2] && active[3]))
     if (active[0] == FALSE
       || active[1] == FALSE
       || active[2] == FALSE
@@ -401,7 +371,6 @@ int isVGM(gzFile fIN)
     // check for 'Vgm ' file signature
     // 致命的エラー：入力ファイルが有効なVGM/VGZファイルではないようです。
     printf("Fatal: input file doesn't seem a valid VGM/VGZ file\n");
-    // return (1);
     result = TRUE;
   }
   
@@ -556,12 +525,10 @@ unsigned int GGStereo(gzFile fIN, FILE* fOUT, unsigned int loop_offset)
 {
   int input_data2 = gzgetc(fIN);
   printf("Warning: GameGear stereo info discarded\n");
-  // decLoopOffset(1);
   loop_offset -= 1;
-  // if (checkLoopOffset())
+
   if (loop_offset == 0)
   {
-    // writeLoopMarker();
     empty_data(fOUT);
     fputc(
       PSG_LOOPMARKER, // 0x01
@@ -571,17 +538,21 @@ unsigned int GGStereo(gzFile fIN, FILE* fOUT, unsigned int loop_offset)
   return loop_offset;
 }
 
-unsigned int fmFollows(gzFile fIN, FILE* fOUT, unsigned int loop_offset)
+unsigned int fmFollows(
+  gzFile fIN,
+  FILE* fOUT, 
+  unsigned int loop_offset
+)
 {
+  printf("Warning: FM chip write discarded\n");
+
   int input_data2 = gzgetc(fIN);
   int input_data3 = gzgetc(fIN);
-  printf("Warning: FM chip write discarded\n");
-  // decLoopOffset(2);
+
   loop_offset -= 2;
-  // if (checkLoopOffset())
+
   if (loop_offset == 0)
   {
-    // writeLoopMarker();
     empty_data(fOUT);
     fputc(
       PSG_LOOPMARKER, // 0x01
@@ -602,18 +573,20 @@ void psgFollows(
   int input_data2 = gzgetc(fIN);
   int latched_chn = 0;
 
-  // if (c & 0x80)
-  if (input_data2 & 0b1000'0000)  // ラッチデータ
+  if (input_data2 & 0b1000'0000)
   {
-    lastlatch = input_data2;                 // latch value
-    // latched_chn = (c & 0x60) >> 5; // isolate chn number
-    latched_chn = (input_data2 & 0b0110'0000) >> 5; // isolate chn number
+    // ラッチデータ
+    lastlatch = input_data2;
+
+    // isolate chn number
+    latched_chn = (input_data2 & 0b0110'0000) >> 5; 
   }
   else
   {
     // ラッチデータではない
-    // c |= 0x40; // make sure DATA bytes have 1 as 6th bit
-    input_data2 |= 0b0100'0000; // make sure DATA bytes have 1 as 6th bit
+
+    // make sure DATA bytes have 1 as 6th bit
+    input_data2 |= 0b0100'0000;
   }
 
   if (
@@ -622,11 +595,11 @@ void psgFollows(
   )
   {
     // output only if on an active channel
+    // アクティブなチャンネル上でのみ出力する
 
     found_frame(fOUT);
 
-    // if ((first_byte) && ((c & 0x80) == 0))
-    if ((first_byte) && ((input_data2 & 0b1000'0000) == 0))
+    if ((*first_byte) && ((input_data2 & 0b1000'0000) == 0))
     {
       add_command(
         lastlatch, 
@@ -641,7 +614,7 @@ void psgFollows(
       is_sfx
     );
 
-    first_byte = FALSE;
+    *first_byte = FALSE;
   }
 
   // decLoopOffset(1);
@@ -656,6 +629,106 @@ void psgFollows(
       fOUT
     );
   }
+}
+
+void frameSkip(
+  gzFile fIN,
+  FILE* fOUT,
+  int *first_byte,
+  unsigned int *loop_offset
+)
+{
+  found_pause(fOUT);
+
+  int input_data2 = 0;
+
+  int fs = 1;
+  do
+  {
+    input_data2 = gzgetc(fIN);
+    if (
+        (input_data2 == VGM_FRAMESKIP_NTSC) // 0x62
+    || (input_data2 == VGM_FRAMESKIP_PAL)  // 0x63
+    )
+    {
+      fs++;
+    }
+    loop_offset -= 1;
+  } 
+  while (
+    (fs < MAX_WAIT) // 7
+    && (
+      (input_data2 == VGM_FRAMESKIP_NTSC)   // 0x62
+      || (input_data2 == VGM_FRAMESKIP_PAL) // 0x63
+    )
+    && (loop_offset != 0)
+  );
+
+  if (
+    (input_data2 != VGM_FRAMESKIP_NTSC)   // 0x62
+    && (input_data2 != VGM_FRAMESKIP_PAL) // 0x63
+  )
+  {
+    gzungetc(input_data2, fIN); // 1バイト戻す
+    loop_offset++;
+  }
+  else if (loop_offset == 0)
+  {
+    empty_data(fOUT);
+    fputc(
+      PSG_LOOPMARKER, // 0x01
+      fOUT
+    );
+  }
+
+  pause_len += fs;
+
+  *first_byte = TRUE;
+
+}
+
+void sampleSkip(
+  gzFile fIN,
+  FILE* fOUT,
+  int sample_divider,
+  int* pause_len,
+  unsigned int* loop_offset,
+  int* first_byte
+)
+{
+  found_pause(fOUT);
+
+  int ss = gzgetc(fIN) + gzgetc(fIN) * 256;
+
+  // samples to frames
+  int fs = ss / sample_divider;
+
+  if ((ss % sample_divider) != 0)
+  {
+    printf("Warning: pause length isn't perfectly frame sync'd\n");
+    if ((ss % sample_divider) > (sample_divider / 2)) 
+    {
+      // round to closest int
+      fs++;
+    }
+  }
+
+  pause_len += fs;
+
+  // decLoopOffset(2);
+  loop_offset -= 2;
+  // if (checkLoopOffset())
+  if (loop_offset == 0)
+  {
+    // writeLoopMarker();
+    empty_data(fOUT);
+    fputc(
+      PSG_LOOPMARKER, // 0x01
+      fOUT
+    );
+  }
+
+  *first_byte = TRUE;
 }
 
 //====================================================================
@@ -675,10 +748,7 @@ int main(int argc, char *argv[])
   // SFXかどうか
   int is_sfx = checkSFX(argc, argv);
 
-  // init_frame();  // 不要
-  // frame_started = TRUE;  // 不要
-
-  // ファイルオープン
+  // 入力ファイルのオープン
   gzFile fIN = gzopen(argv[1], "rb");
   if (!fIN)
   {
@@ -686,6 +756,7 @@ int main(int argc, char *argv[])
     return (1);
   }
 
+  // 出力ファイルのオープン
   FILE* fOUT = fopen(argv[2], "wb");
   if (!fOUT)
   {
@@ -715,11 +786,11 @@ int main(int argc, char *argv[])
     SEEK_SET
   );
 
-  int leave = 0;  // ループを抜けるフラグ
-  int fatal = 0; 
+  int leave = FALSE;  // ループを抜けるフラグ
+  int fatal = FALSE;  // エラーがあったかどうかのフラグ
   int first_byte = TRUE;
   while (
-    (leave == 0) 
+    (leave == FALSE) 
     && (!gzeof(fIN))  // ファイルが終わっているかどうか
   )
   {
@@ -759,161 +830,83 @@ int main(int argc, char *argv[])
         );
         break;
       }
-    case VGM_FRAMESKIP_NTSC: // 0x62
-    case VGM_FRAMESKIP_PAL:  // 0x63
-    {
-      // 待つ
-      found_pause(fOUT);
-
-      int input_data2 = 0;
-
-      int fs = 1;
-      do
+      case VGM_FRAMESKIP_NTSC: // 0x62
+      case VGM_FRAMESKIP_PAL:  // 0x63
       {
-        input_data2 = gzgetc(fIN);
-        if (
-           (input_data2 == VGM_FRAMESKIP_NTSC) // 0x62
-        || (input_data2 == VGM_FRAMESKIP_PAL)  // 0x63
-        )
-        {
-          fs++;
-        }
-        // decLoopOffset(1);
-        loop_offset -= 1;
-      } 
-      while (
-        (fs < MAX_WAIT) // 7
-        && (
-          (input_data2 == VGM_FRAMESKIP_NTSC)   // 0x62
-          || (input_data2 == VGM_FRAMESKIP_PAL) // 0x63
-        )
-        // && (!checkLoopOffset())
-        && (loop_offset != 0)
-      );
-
-      if (
-        (input_data2 != VGM_FRAMESKIP_NTSC)   // 0x62
-        && (input_data2 != VGM_FRAMESKIP_PAL) // 0x63
-      )
-      {
-        gzungetc(input_data2, fIN); // 1バイト戻す
-        // incLoopOffset();
-        loop_offset++;
-      }
-      // else if (checkLoopOffset())
-      else if (loop_offset == 0)
-      {
-        // writeLoopMarker();
-        empty_data(fOUT);
-        fputc(
-          PSG_LOOPMARKER, // 0x01
-          fOUT
+        frameSkip(
+          fIN,
+          fOUT,
+          &first_byte,
+          &loop_offset
         );
-      }
-
-      pause_len += fs;
-
-      first_byte = TRUE;
-
-      break;
-    }
-    case VGM_SAMPLESKIP:  // 0x61
-    {
-      // 待つ
-
-      found_pause(fOUT);
-
-      // int input_data2 = gzgetc(fIN);
-      // int ss = input_data2;
-      // int input_data3 = gzgetc(fIN);
-      // ss += input_data3 * 256;
-      int ss = gzgetc(fIN) + gzgetc(fIN) * 256;
-
-      // samples to frames
-      int fs = ss / sample_divider;
-
-      if ((ss % sample_divider) != 0)
-      {
-        printf("Warning: pause length isn't perfectly frame sync'd\n");
-        if ((ss % sample_divider) > (sample_divider / 2)) 
-        {
-          // round to closest int
-          fs++;
-        }
-      }
-
-      pause_len += fs;
-
-      // decLoopOffset(2);
-      loop_offset -= 2;
-      // if (checkLoopOffset())
-      if (loop_offset == 0)
-      {
-        // writeLoopMarker();
-        empty_data(fOUT);
-        fputc(
-          PSG_LOOPMARKER, // 0x01
-          fOUT
-        );
-      }
-
-      first_byte = TRUE;
-
-      break;
-    }
-    case VGM_ENDOFDATA: // 0x66
-      // end of data
-      leave = 1;
-      // decLoopOffset(1);
-      loop_offset -= 1;
-      // if (checkLoopOffset())
-      if (loop_offset == 0)
-      {
-        // writeLoopMarker();
-        empty_data(fOUT);
-        fputc(
-          PSG_LOOPMARKER, // 0x01
-          fOUT
-        );
-      }
-
-      empty_data(fOUT);
-
-      fputc(
-        PSG_ENDOFDATA,  // 0x00
-        fOUT
-      );
-
-      break;
-
-    default:
-      // Drop compact (1 to 16) sample skip command
-      // if ((c & 0xf0) == VGM_SAMPLESKIP_7N)  // 0x70
-      if ((input_data & 0b1111'0000) == 0b0111'0000)  // 0x70
-      {
-        printf("Warning: pause length isn't perfectly frame sync'd\n");
         break;
       }
+      case VGM_SAMPLESKIP:  // 0x61
+      {
+        // 待つ
+        sampleSkip(
+          fIN,
+          fOUT,
+          sample_divider,
+          &pause_len,
+          &loop_offset,
+          &first_byte
+        );
 
-      printf("Fatal: found unknown char 0x%02x\n", input_data);
-      leave = 1;
-      fatal = 1;
-      break;
+        break;
+      }
+      case VGM_ENDOFDATA: // 0x66
+      {
+        // end of data
+        leave = TRUE;
+        loop_offset -= 1;
+        if (loop_offset == 0)
+        {
+          empty_data(fOUT);
+          fputc(
+            PSG_LOOPMARKER, // 0x01
+            fOUT
+          );
+        }
+
+        empty_data(fOUT);
+
+        fputc(
+          PSG_ENDOFDATA,  // 0x00
+          fOUT
+        );
+
+        break;
+      }
+      default:
+      {
+        // Drop compact (1 to 16) sample skip command
+        if ((input_data & 0b1111'0000) == 0b0111'0000)  // 0x70
+        {
+          printf("Warning: pause length isn't perfectly frame sync'd\n");
+          break;
+        }
+
+        printf("Fatal: found unknown char 0x%02x\n", input_data);
+        leave = TRUE;
+        fatal = TRUE;
+        break;
+      }
     }
-  }
 
-  //===================================
-  // クローズ処理
-  gzclose(fIN);
-  fclose(fOUT);
+    //===================================
+    // クローズ処理
+    gzclose(fIN);
+    fclose(fOUT);
 
-  if (!fatal)
-  {
-    printf("Info: conversion complete\n");
-    return (0);
-  }
-  else
-  {
-    return (1);
+    if (fatal == FALSE)
+    {
+      printf("Info: conversion complete\n");
+      return (0);
+    }
+    else
+    {
+      return (1);
+    }
   }
 }
