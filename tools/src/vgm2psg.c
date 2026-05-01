@@ -108,6 +108,29 @@ int getType(int input_data)
   return (input_data & PSG_TYPE_MASK) >> 4;
 }
 
+// データの抽出
+int getData(int input_data)
+{
+  return (input_data & PSG_DATA_MASK);
+}
+
+// データの抽出（２バイト目）
+int getData2(int input_data)
+{
+  return (input_data & PSG_DATA_MASK2);
+}
+
+// 周波数の抽出
+unsigned short getFreq(unsigned short input_data)
+{
+  return (input_data & PSG_FREQ_MASK);
+}
+
+unsigned short getFreq2(unsigned short input_data)
+{
+  return (input_data & PSG_FREQ_MASK2);
+}
+
 void add_command(
   unsigned char input_data,
   int is_sfx,
@@ -137,14 +160,16 @@ void add_command(
           || 
           (
             // (st->freq[chn] & 0b0000'1111) != (input_data & 0b0000'1111)
-            (st->freq[chn] & PSG_DATA_MASK) != (input_data & PSG_DATA_MASK)
+            // (st->freq[chn] & PSG_DATA_MASK) != (input_data & PSG_DATA_MASK)
+            getData(st->freq[chn]) != getData(input_data)
           )
         )
         {
           // see if we're really changing the low part of the frequency or not (saving noise channel retrigs!)
           // 実際に周波数の下位部分を変更しているかどうかを確認する（ノイズチャンネルの再トリガーを抑えるため！）
           // st->freq[chn] = (st->freq[chn] & 0b1111'1111'1111'0000) | (input_data & 0b0000'1111);
-          st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK) | (input_data & PSG_DATA_MASK);
+          // st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK) | (input_data & PSG_DATA_MASK);
+          st->freq[chn] = getFreq(st->freq[chn]) | getData(input_data);
           st->freq_change[chn] = TRUE;
         }
 
@@ -171,11 +196,13 @@ void add_command(
       {
         // ボリューム
         // if (st->volume[chn] != (input_data & 0b0000'1111))
-        if (st->volume[chn] != (input_data & PSG_DATA_MASK))
+        // if (st->volume[chn] != (input_data & PSG_DATA_MASK))
+        if (st->volume[chn] != getData(input_data))
         {
           // see if we're really changing the volume or not
           // st->volume[chn] = input_data & 0b0000'1111;
-          st->volume[chn] = input_data & PSG_DATA_MASK;
+          // st->volume[chn] = input_data & PSG_DATA_MASK;
+          st->volume[chn] = getData(input_data);
           st->volume_change[chn] = TRUE;
         }
 
@@ -196,11 +223,13 @@ void add_command(
       {
         // 周波数
         // if ((input_data & 0b0011'1111) != (st->freq[chn] >> 4))
-        if ((input_data & PSG_DATA_MASK2) != (st->freq[chn] >> 4))
+        // if ((input_data & PSG_DATA_MASK2) != (st->freq[chn] >> 4))
+        if (getData(input_data) != (st->freq[chn] >> 4))
         {
           // 周波数の上位部分を実際に変更しているかどうかを確認する
           // st->freq[chn] = (st->freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
-          st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK2) | ((input_data & PSG_DATA_MASK2) << 4);
+          // st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK2) | ((input_data & PSG_DATA_MASK2) << 4);
+          st->freq[chn] = getFreq2(st->freq[chn]) | (getData2(input_data) << 4);
           st->hi_freq_change[chn] = TRUE;
 
           // 周波数の上位部分を更新するには、下位部分も更新する必要があり、それ以外の方法はない
@@ -212,11 +241,13 @@ void add_command(
       {
         // 音量
         // if (st->volume[chn] != (input_data & 0b0000'1111))
-        if (st->volume[chn] != (input_data & PSG_DATA_MASK))
+        // if (st->volume[chn] != (input_data & PSG_DATA_MASK))
+        if (st->volume[chn] != getData(input_data))
         {
           // see if we're really changing the volume or not
           // st->volume[chn] = input_data & 0b0000'1111;
-          st->volume[chn] = input_data & PSG_DATA_MASK;
+          // st->volume[chn] = input_data & PSG_DATA_MASK;
+          st->volume[chn] = getData(input_data);
           st->volume_change[chn] = TRUE;
         }
         break;
