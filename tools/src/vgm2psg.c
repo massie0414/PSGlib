@@ -33,6 +33,12 @@
 const int NTSC = 735;
 const int PAL = 882;
 
+enum Type
+{
+  FREQUENCY = 0,
+  VOLUME = 1
+};
+
 // unsigned char volume[CHANNELS] = {0xFF, 0xFF, 0xFF, 0xFF};        // 各チャンネルのボリューム
 // unsigned short freq[CHANNELS] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}; // 各チャンネルの周波数
 // int volume_change[CHANNELS] = {FALSE, FALSE, FALSE, FALSE};       // 音量が変わったか
@@ -62,6 +68,22 @@ void init_frame(
   }
 }
 
+int is_latch(int input_data)
+{
+  return input_data & 0b1000'0000;
+}
+
+int getChannel(int input_data)
+{
+  return (input_data & 0b0110'0000) >> 5;
+}
+
+// 0:周波数 1:音量
+int getType(int input_data)
+{
+  return (input_data & 0b0001'0000) >> 4;
+}
+
 void add_command(
   unsigned char input_data,
   int is_sfx,
@@ -70,77 +92,99 @@ void add_command(
   PSGState* st
 )
 {
-  if (input_data & 0b1000'0000)
+  // int chn = (input_data & 0b0110'0000) >> 5;
+  int chn = getChannel(input_data);
+  int typ = getType(input_data);
+
+  // if (input_data & 0b1000'0000)
+  if (is_latch(input_data))
   {
     // ラッチデータ
 
-    // チャンネル
-    int chn = (input_data & 0b0110'0000) >> 5;
-    int typ = (input_data & 0b0001'0000) >> 4;
-    if (typ == 1)
+    // int typ = (input_data & 0b0001'0000) >> 4;
+    switch (typ)
     {
-      if (st->volume[chn] != (input_data & 0b0000'1111))
+      case FREQUENCY:
       {
-        // see if we're really changing the volume or not
-        st->volume[chn] = input_data & 0b0000'1111;
-        st->volume_change[chn] = TRUE;
-      }
-    }
-    else
-    {
-      if (
-        (chn == 3) 
-        || 
-        (
-          (st->freq[chn] & 0b0000'1111) != (input_data & 0b0000'1111)
+        // 周波数
+        if (
+          (chn == 3) 
+          || 
+          (
+            (st->freq[chn] & 0b0000'1111) != (input_data & 0b0000'1111)
+          )
         )
-      )
-      {
-        // see if we're really changing the low part of the frequency or not (saving noise channel retrigs!)
-        // 実際に周波数の下位部分を変更しているかどうかを確認する（ノイズチャンネルの再トリガーを抑えるため！）
-        st->freq[chn] = (st->freq[chn] & 0b1111'1111'1111'0000) | (input_data & 0b0000'1111);
-        st->freq_change[chn] = TRUE;
-      }
+        {
+          // see if we're really changing the low part of the frequency or not (saving noise channel retrigs!)
+          // 実際に周波数の下位部分を変更しているかどうかを確認する（ノイズチャンネルの再トリガーを抑えるため！）
+          st->freq[chn] = (st->freq[chn] & 0b1111'1111'1111'0000) | (input_data & 0b0000'1111);
+          st->freq_change[chn] = TRUE;
+        }
 
-      if (
-        (chn == 3) 
-        && (is_sfx) 
-        && (st->active[3]) 
-        && (!st->active[2]) 
-        && ((input_data & 0b0000'0011) == 0b0000'0011) 
-        && (*warn_32==FALSE)
-      )
+        if (
+          (chn == 3) 
+          && (is_sfx) 
+          && (st->active[3]) 
+          && (!st->active[2]) 
+          && ((input_data & 0b0000'0011) == 0b0000'0011) 
+          && (*warn_32==FALSE)
+        )
+        {
+          // 警告：チャンネル3（ノイズチャンネル）がチャンネル2のトーンを使用しています。
+          // おそらく、チャンネル2も含めて vgm2psg を実行する必要があります。
+          printf("Warning: channel 3 (the noise channel) is using channel 2 tone. You probably need to run vgm2psg including channel 2 too.\n");
+          *warn_32 = TRUE;
+        }
+
+        break;
+      }
+      case VOLUME:
       {
-        // 警告：チャンネル3（ノイズチャンネル）がチャンネル2のトーンを使用しています。
-        // おそらく、チャンネル2も含めて vgm2psg を実行する必要があります。
-        printf("Warning: channel 3 (the noise channel) is using channel 2 tone. You probably need to run vgm2psg including channel 2 too.\n");
-        *warn_32 = TRUE;
+        // ボリューム
+        if (st->volume[chn] != (input_data & 0b0000'1111))
+        {
+          // see if we're really changing the volume or not
+          st->volume[chn] = input_data & 0b0000'1111;
+          st->volume_change[chn] = TRUE;
+        }
+
+        break;
       }
     }
   }
   else
   {
-    int chn = (lastlatch & 0b0110'0000) >> 5;
-    int typ = (lastlatch & 0b0001'0000) >> 4;
-    if (typ == 1)
-    {
-      if (st->volume[chn] != (input_data & 0b0000'1111))
-      {
-        // see if we're really changing the volume or not
-        st->volume[chn] = input_data & 0b0000'1111;
-        st->volume_change[chn] = TRUE;
-      }
-    }
-    else
-    {
-      if ((input_data & 0b0011'1111) != (st->freq[chn] >> 4))
-      {
-        // 周波数の上位部分を実際に変更しているかどうかを確認する
-        st->freq[chn] = (st->freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
-        st->hi_freq_change[chn] = TRUE;
+    // ラッチデータではない
 
-        // 周波数の上位部分を更新するには、下位部分も更新する必要があり、それ以外の方法はない
-        st->freq_change[chn] = TRUE;
+    // int chn = (lastlatch & 0b0110'0000) >> 5;
+    // int typ = (lastlatch & 0b0001'0000) >> 4;
+    // if (typ == 1)
+    switch(typ)
+    {
+      case FREQUENCY:
+      {
+        // 周波数
+        if ((input_data & 0b0011'1111) != (st->freq[chn] >> 4))
+        {
+          // 周波数の上位部分を実際に変更しているかどうかを確認する
+          st->freq[chn] = (st->freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
+          st->hi_freq_change[chn] = TRUE;
+
+          // 周波数の上位部分を更新するには、下位部分も更新する必要があり、それ以外の方法はない
+          st->freq_change[chn] = TRUE;
+        }
+        break;
+      }
+      case VOLUME:
+      {
+        // 音量
+        if (st->volume[chn] != (input_data & 0b0000'1111))
+        {
+          // see if we're really changing the volume or not
+          st->volume[chn] = input_data & 0b0000'1111;
+          st->volume_change[chn] = TRUE;
+        }
+        break;
       }
     }
   }
