@@ -39,6 +39,22 @@ enum Type
   VOLUME = 1
 };
 
+#define PSG_LATCH_MASK            0b1000'0000
+#define PSG_CH_MASK               0b0110'0000
+#define PSG_HI_CH_MASK            0b0100'0000
+#define PSG_TYPE_MASK             0b0001'0000
+#define PSG_DATA_MASK             0b0000'1111
+#define PSG_DATA_MASK2            0b0011'1111
+#define PSG_FREQ_MASK             0b1111'1111'1111'0000
+#define PSG_FREQ_MASK2            0b0000'0000'0000'1111
+#define PSG_NOISE_FREQ_MASK       0b1110'0000 
+#define PSG_NOISE_FREQ_TYPE_MASK  0b0000'0111  // ノイズ種類＋周波数
+#define PSG_NOISE_FREQ_DATA_MASK  0b0000'0011  // 周波数
+#define PSG_VOLUME_MASK           0b1001'0000
+#define PSG_NOISE_VOLUME_MASK     0b1111'0000 
+
+#define NOISE_CH 3
+
 // unsigned char volume[CHANNELS] = {0xFF, 0xFF, 0xFF, 0xFF};        // 各チャンネルのボリューム
 // unsigned short freq[CHANNELS] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}; // 各チャンネルの周波数
 // int volume_change[CHANNELS] = {FALSE, FALSE, FALSE, FALSE};       // 音量が変わったか
@@ -62,26 +78,34 @@ void init_frame(
 {
   for (int i = 0; i < CHANNELS; i++)
   {
+    st->volume[i] = 0xFF;
+    st->freq[i] = 0xFFFF;
     st->volume_change[i] = FALSE;
     st->freq_change[i] = FALSE;
     st->hi_freq_change[i] = FALSE;
+    st->active[i] = FALSE;
   }
 }
 
+// 1：ラッチデータ
 int is_latch(int input_data)
 {
-  return input_data & 0b1000'0000;
+  // return input_data & 0b1000'0000;
+  return input_data & PSG_LATCH_MASK;
 }
 
+// チャンネル番号：0～3
 int getChannel(int input_data)
 {
-  return (input_data & 0b0110'0000) >> 5;
+  // return (input_data & 0b0110'0000) >> 5;
+  return (input_data & PSG_CH_MASK) >> 5;
 }
 
 // 0:周波数 1:音量
 int getType(int input_data)
 {
-  return (input_data & 0b0001'0000) >> 4;
+  // return (input_data & 0b0001'0000) >> 4;
+  return (input_data & PSG_TYPE_MASK) >> 4;
 }
 
 void add_command(
@@ -108,26 +132,31 @@ void add_command(
       {
         // 周波数
         if (
-          (chn == 3) 
+          // (chn == 3) // ノイズ
+          (chn == NOISE_CH) // ノイズ
           || 
           (
-            (st->freq[chn] & 0b0000'1111) != (input_data & 0b0000'1111)
+            // (st->freq[chn] & 0b0000'1111) != (input_data & 0b0000'1111)
+            (st->freq[chn] & PSG_DATA_MASK) != (input_data & PSG_DATA_MASK)
           )
         )
         {
           // see if we're really changing the low part of the frequency or not (saving noise channel retrigs!)
           // 実際に周波数の下位部分を変更しているかどうかを確認する（ノイズチャンネルの再トリガーを抑えるため！）
-          st->freq[chn] = (st->freq[chn] & 0b1111'1111'1111'0000) | (input_data & 0b0000'1111);
+          // st->freq[chn] = (st->freq[chn] & 0b1111'1111'1111'0000) | (input_data & 0b0000'1111);
+          st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK) | (input_data & PSG_DATA_MASK);
           st->freq_change[chn] = TRUE;
         }
 
         if (
-          (chn == 3) 
+          // (chn == 3) 
+          (chn == NOISE_CH) 
           && (is_sfx) 
-          && (st->active[3]) 
+          && (st->active[NOISE_CH]) 
           && (!st->active[2]) 
-          && ((input_data & 0b0000'0011) == 0b0000'0011) 
-          && (*warn_32==FALSE)
+          // && ((input_data & 0b0000'0011) == 0b0000'0011) 
+          && ((input_data & PSG_NOISE_FREQ_DATA_MASK) == PSG_NOISE_FREQ_DATA_MASK) 
+          && (*warn_32 == FALSE)
         )
         {
           // 警告：チャンネル3（ノイズチャンネル）がチャンネル2のトーンを使用しています。
@@ -141,10 +170,12 @@ void add_command(
       case VOLUME:
       {
         // ボリューム
-        if (st->volume[chn] != (input_data & 0b0000'1111))
+        // if (st->volume[chn] != (input_data & 0b0000'1111))
+        if (st->volume[chn] != (input_data & PSG_DATA_MASK))
         {
           // see if we're really changing the volume or not
-          st->volume[chn] = input_data & 0b0000'1111;
+          // st->volume[chn] = input_data & 0b0000'1111;
+          st->volume[chn] = input_data & PSG_DATA_MASK;
           st->volume_change[chn] = TRUE;
         }
 
@@ -164,10 +195,12 @@ void add_command(
       case FREQUENCY:
       {
         // 周波数
-        if ((input_data & 0b0011'1111) != (st->freq[chn] >> 4))
+        // if ((input_data & 0b0011'1111) != (st->freq[chn] >> 4))
+        if ((input_data & PSG_DATA_MASK2) != (st->freq[chn] >> 4))
         {
           // 周波数の上位部分を実際に変更しているかどうかを確認する
-          st->freq[chn] = (st->freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
+          // st->freq[chn] = (st->freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
+          st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK2) | ((input_data & PSG_DATA_MASK2) << 4);
           st->hi_freq_change[chn] = TRUE;
 
           // 周波数の上位部分を更新するには、下位部分も更新する必要があり、それ以外の方法はない
@@ -178,10 +211,12 @@ void add_command(
       case VOLUME:
       {
         // 音量
-        if (st->volume[chn] != (input_data & 0b0000'1111))
+        // if (st->volume[chn] != (input_data & 0b0000'1111))
+        if (st->volume[chn] != (input_data & PSG_DATA_MASK))
         {
           // see if we're really changing the volume or not
-          st->volume[chn] = input_data & 0b0000'1111;
+          // st->volume[chn] = input_data & 0b0000'1111;
+          st->volume[chn] = input_data & PSG_DATA_MASK;
           st->volume_change[chn] = TRUE;
         }
         break;
@@ -202,9 +237,11 @@ void dump_frame(
     {
       // latch channel 0-2 freq
       unsigned char c =
-       0b1000'0000 
+      //  0b1000'0000 
+       PSG_LATCH_MASK
        | (i << 5)
-       | (st->freq[i] & 0b0000'1111);
+      //  | (st->freq[i] & 0b0000'1111);
+       | (st->freq[i] & PSG_DATA_MASK);
       
       fputc( 
         c, 
@@ -216,7 +253,8 @@ void dump_frame(
         // DATA byte needed?
 
         // make sure DATA bytes have 1 as 6th bit
-        unsigned char c = 0b0100'0000 | (st->freq[i] >> 4);
+        // unsigned char c = 0b0100'0000 | (st->freq[i] >> 4);
+        unsigned char c = PSG_HI_CH_MASK | (st->freq[i] >> 4);
         fputc(
           c, 
           fOUT
@@ -228,9 +266,11 @@ void dump_frame(
     {
       // latch channel 0-2 volume
       unsigned char c = 
-        0b1001'0000
+        // 0b1001'0000
+        PSG_VOLUME_MASK
         | (i << 5) 
-        | (st->active[i] & 0b0000'1111);
+        // | (st->active[i] & 0b0000'1111);
+        | (st->active[i] & PSG_DATA_MASK);
 
       fputc(
         c, 
@@ -243,8 +283,10 @@ void dump_frame(
   {
     // latch channel 3 (noise)
     unsigned char c = 
-      0b1110'0000 
-      | (st->freq[3] & 0b0000'0111);
+      // 0b1110'0000 
+      PSG_NOISE_FREQ_MASK
+      // | (st->freq[3] & 0b0000'0111);
+      | (st->freq[3] & PSG_NOISE_FREQ_TYPE_MASK);
     
     fputc(
       c, 
@@ -256,8 +298,10 @@ void dump_frame(
   {
     // latch channel 3 volume
     unsigned char c = 
-      0b1111'0000 
-      | (st->volume[3] & 0b0000'1111);
+      // 0b1111'0000 
+      PSG_NOISE_VOLUME_MASK
+      // | (st->volume[3] & 0b0000'1111);
+      | (st->volume[3] & PSG_DATA_MASK);
     
     fputc(
       c,
