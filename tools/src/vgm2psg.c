@@ -71,6 +71,22 @@ typedef struct {
   int active[CHANNELS];
 } PSGState;
 
+typedef struct {
+  // 状態
+  int pause_len;
+  int pause_started;
+  int frame_started;
+  int first_byte;
+  int warn_32;
+  int latched_chn;
+  unsigned char lastlatch;
+
+  int is_sfx;
+  int sample_divider;
+
+  PSGState st;
+} Context;
+
 // 初期化
 void init_frame(
   PSGState* st
@@ -133,10 +149,11 @@ unsigned short getFreq2(unsigned short input_data)
 
 void add_command(
   unsigned char input_data,
-  int is_sfx,
-  int *warn_32,
-  unsigned char lastlatch,
-  PSGState* st
+  // int is_sfx,
+  // int *warn_32,
+  // unsigned char lastlatch,
+  // PSGState* st
+  Context *ctx
 )
 {
   // int chn = (input_data & 0b0110'0000) >> 5;
@@ -161,7 +178,7 @@ void add_command(
           (
             // (st->freq[chn] & 0b0000'1111) != (input_data & 0b0000'1111)
             // (st->freq[chn] & PSG_DATA_MASK) != (input_data & PSG_DATA_MASK)
-            getData(st->freq[chn]) != getData(input_data)
+            getData(ctx->st.freq[chn]) != getData(input_data)
           )
         )
         {
@@ -169,25 +186,25 @@ void add_command(
           // 実際に周波数の下位部分を変更しているかどうかを確認する（ノイズチャンネルの再トリガーを抑えるため！）
           // st->freq[chn] = (st->freq[chn] & 0b1111'1111'1111'0000) | (input_data & 0b0000'1111);
           // st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK) | (input_data & PSG_DATA_MASK);
-          st->freq[chn] = getFreq(st->freq[chn]) | getData(input_data);
-          st->freq_change[chn] = TRUE;
+          ctx->st.freq[chn] = getFreq(ctx->st.freq[chn]) | getData(input_data);
+          ctx->st.freq_change[chn] = TRUE;
         }
 
         if (
           // (chn == 3) 
           (chn == NOISE_CH) 
-          && (is_sfx) 
-          && (st->active[NOISE_CH]) 
-          && (!st->active[2]) 
+          && (ctx->is_sfx) 
+          && (ctx->st.active[NOISE_CH]) 
+          && (!ctx->st.active[2]) 
           // && ((input_data & 0b0000'0011) == 0b0000'0011) 
           && ((input_data & PSG_NOISE_FREQ_DATA_MASK) == PSG_NOISE_FREQ_DATA_MASK) 
-          && (*warn_32 == FALSE)
+          && (ctx->warn_32 == FALSE)
         )
         {
           // 警告：チャンネル3（ノイズチャンネル）がチャンネル2のトーンを使用しています。
           // おそらく、チャンネル2も含めて vgm2psg を実行する必要があります。
           printf("Warning: channel 3 (the noise channel) is using channel 2 tone. You probably need to run vgm2psg including channel 2 too.\n");
-          *warn_32 = TRUE;
+          ctx->warn_32 = TRUE;
         }
 
         break;
@@ -197,13 +214,13 @@ void add_command(
         // ボリューム
         // if (st->volume[chn] != (input_data & 0b0000'1111))
         // if (st->volume[chn] != (input_data & PSG_DATA_MASK))
-        if (st->volume[chn] != getData(input_data))
+        if (ctx->st.volume[chn] != getData(input_data))
         {
           // see if we're really changing the volume or not
           // st->volume[chn] = input_data & 0b0000'1111;
           // st->volume[chn] = input_data & PSG_DATA_MASK;
-          st->volume[chn] = getData(input_data);
-          st->volume_change[chn] = TRUE;
+          ctx->st.volume[chn] = getData(input_data);
+          ctx->st.volume_change[chn] = TRUE;
         }
 
         break;
@@ -224,16 +241,16 @@ void add_command(
         // 周波数
         // if ((input_data & 0b0011'1111) != (st->freq[chn] >> 4))
         // if ((input_data & PSG_DATA_MASK2) != (st->freq[chn] >> 4))
-        if (getData(input_data) != (st->freq[chn] >> 4))
+        if (getData(input_data) != (ctx->st.freq[chn] >> 4))
         {
           // 周波数の上位部分を実際に変更しているかどうかを確認する
           // st->freq[chn] = (st->freq[chn] & 0b0000'0000'0000'1111) | ((input_data & 0b0011'1111) << 4);
           // st->freq[chn] = (st->freq[chn] & PSG_FREQ_MASK2) | ((input_data & PSG_DATA_MASK2) << 4);
-          st->freq[chn] = getFreq2(st->freq[chn]) | (getData2(input_data) << 4);
-          st->hi_freq_change[chn] = TRUE;
+          ctx->st.freq[chn] = getFreq2(ctx->st.freq[chn]) | (getData2(input_data) << 4);
+          ctx->st.hi_freq_change[chn] = TRUE;
 
           // 周波数の上位部分を更新するには、下位部分も更新する必要があり、それ以外の方法はない
-          st->freq_change[chn] = TRUE;
+          ctx->st.freq_change[chn] = TRUE;
         }
         break;
       }
@@ -242,13 +259,13 @@ void add_command(
         // 音量
         // if (st->volume[chn] != (input_data & 0b0000'1111))
         // if (st->volume[chn] != (input_data & PSG_DATA_MASK))
-        if (st->volume[chn] != getData(input_data))
+        if (ctx->st.volume[chn] != getData(input_data))
         {
           // see if we're really changing the volume or not
           // st->volume[chn] = input_data & 0b0000'1111;
           // st->volume[chn] = input_data & PSG_DATA_MASK;
-          st->volume[chn] = getData(input_data);
-          st->volume_change[chn] = TRUE;
+          ctx->st.volume[chn] = getData(input_data);
+          ctx->st.volume_change[chn] = TRUE;
         }
         break;
       }
@@ -260,6 +277,7 @@ void add_command(
 void dump_frame(
   FILE* fOUT,
   PSGState *st
+  // Context *ctx
 )
 {
   for (int i = 0; i < CHANNELS - 1; i++)
@@ -344,13 +362,14 @@ void dump_frame(
 // ポーズデータの出力
 void dump_pause(
   FILE* fOUT, 
-  int *pause_len,
-  int *pause_started
+  // int *pause_len,
+  // int *pause_started
+  Context *ctx
 )
 {
-  if (*pause_len > 0)
+  if (ctx->pause_len > 0)
   {
-    while (*pause_len > MAX_WAIT)
+    while (ctx->pause_len > MAX_WAIT)
     {
       // write PSG_WAIT+7 to file
       fputc(
@@ -359,72 +378,76 @@ void dump_pause(
       );
 
       // skip MAX_WAIT+1
-      *pause_len -= MAX_WAIT + 1;
+      ctx->pause_len -= MAX_WAIT + 1;
     }
-    if (*pause_len > 0)
+    if (ctx->pause_len > 0)
     {
       // write PSG_WAIT+[0 to 7] to file, don't do it if 0
       fputc(
-        PSG_WAIT + (*pause_len - 1), // 0x38 + 
+        PSG_WAIT + (ctx->pause_len - 1), // 0x38 + 
         fOUT
       );
     }
   }
 
-  *pause_len = 0;
-  *pause_started = FALSE;
+  ctx->pause_len = 0;
+  ctx->pause_started = FALSE;
 }
 
 void found_pause(
   FILE* fOUT,
-  int* frame_started,
-  int* pause_started,
-  PSGState *st
+  // int* frame_started,
+  // int* pause_started,
+  // PSGState *st
+  Context *ctx
 )
 {
-  if (*frame_started)
+  if (ctx->frame_started)
   {
     // 1フレーム分の音データを出力する関数
     dump_frame(
       fOUT, 
-      st
+      &ctx->st
+      // ctx
     );
 
     // 初期化
-    init_frame(st);
+    init_frame(&ctx->st);
 
-    *frame_started = FALSE;
+    ctx->frame_started = FALSE;
   }
 
-  *pause_started = TRUE;
+  ctx->pause_started = TRUE;
 }
 
 void empty_data(
   FILE* fOUT,
-  int *pause_len,
-  int *pause_started,
-  int *frame_started,
-  PSGState *st
+  // int *pause_len,
+  // int *pause_started,
+  // int *frame_started,
+  // PSGState *st
+  Context *ctx
 )
 {
-  if (pause_started)
+  if (ctx->pause_started)
   {
     // ポーズデータの出力
     dump_pause(
       fOUT, 
-      pause_len,
-      pause_started
+      // pause_len,
+      // pause_started
+      ctx
     );
   }
-  else if (*frame_started)
+  else if (ctx->frame_started)
   {
     dump_frame(
       fOUT,
-      st
+      &ctx->st
     );
 
-    init_frame(st);
-    *frame_started = FALSE;
+    init_frame(&ctx->st);
+    ctx->frame_started = FALSE;
   }
 }
 
@@ -702,9 +725,10 @@ void GGStereo(
   gzFile fIN, 
   FILE* fOUT,
   // int *loop_offset,
-  int *pause_len,
-  int *pause_started,
-  int *frame_started
+  // int *pause_len,
+  // int *pause_started,
+  // int *frame_started
+  Context *ctx
 )
 {
   printf("Warning: GameGear stereo info discarded\n");
@@ -733,9 +757,10 @@ void fmFollows(
   gzFile fIN,
   FILE* fOUT, 
   // int *loop_offset,
-  int *pause_len,
-  int *pause_started,
-  int *frame_started
+  // int *pause_len,
+  // int *pause_started,
+  // int *frame_started
+  Context *ctx
 )
 {
   printf("Warning: FM chip write discarded\n");
@@ -763,16 +788,17 @@ void fmFollows(
 void psgFollows(
   gzFile fIN, 
   FILE* fOUT, 
-  int is_sfx,
-  int *first_byte,
+  // int is_sfx,
+  // int *first_byte,
   // int *loop_offset,
-  int *pause_started,
-  int *pause_len,
-  int *frame_started,
-  int *warn_32,
-  int *latched_chn,
-  unsigned char *lastlatch,
-  PSGState *st
+  // int *pause_started,
+  // int *pause_len,
+  // int *frame_started,
+  // int *warn_32,
+  // int *latched_chn,
+  // unsigned char *lastlatch,
+  // PSGState *st
+  Context *ctx
 )
 {
   int input_data = gzgetc(fIN);
@@ -780,10 +806,10 @@ void psgFollows(
   if (input_data & 0b1000'0000)
   {
     // ラッチデータ
-    *lastlatch = input_data;
+    ctx->lastlatch = input_data;
 
     // isolate chn number
-    *latched_chn = (input_data & 0b0110'0000) >> 5; 
+    ctx->latched_chn = (input_data & 0b0110'0000) >> 5; 
   }
   else
   {
@@ -792,33 +818,35 @@ void psgFollows(
   }
 
   if (
-    (!is_sfx)
-      || (st->active[*latched_chn])
+    (ctx->is_sfx == 0)
+      || (ctx->st.active[ctx->latched_chn])
   )
   {
     // アクティブなチャンネル上でのみ出力する
-    if (pause_started)
+    if (ctx->pause_started)
     {
       // ポーズデータの出力
       dump_pause(
         fOUT, 
-        pause_len,
-        pause_started
+        // ctx->pause_len,
+        // ctx->pause_started
+        ctx
       );
     }
-    *frame_started = TRUE;
+    ctx->frame_started = TRUE;
 
     if (
-      (*first_byte) 
+      (ctx->first_byte) 
       && ((input_data & 0b1000'0000) == 0)
     )
     {
       add_command(
-        *lastlatch, 
-        is_sfx,
-        warn_32,
-        *lastlatch,
-        st
+        ctx->lastlatch, // TODO input_data説
+        // is_sfx,
+        // warn_32,
+        // *lastlatch,
+        // st
+        ctx
       );
 
       printf("Warning: added missing latch command in frame start\n");
@@ -826,13 +854,14 @@ void psgFollows(
 
     add_command(
       input_data, 
-      is_sfx,
-      warn_32,
-      *lastlatch,
-      st
+      // is_sfx,
+      // warn_32,
+      // *lastlatch,
+      // st
+      ctx
     );
 
-    *first_byte = FALSE;
+    ctx->first_byte = FALSE;
   }
 
   // *loop_offset -= 1;
@@ -855,19 +884,21 @@ void psgFollows(
 void frameSkip(
   gzFile fIN,
   FILE* fOUT,
-  int *first_byte,
+  // int *first_byte,
   // int *loop_offset,
-  int *pause_len,
-  int *pause_started,
-  int *frame_started,
-  PSGState *st
+  // int *pause_len,
+  // int *pause_started,
+  // int *frame_started,
+  // PSGState *st
+  Context *ctx
 )
 {
   found_pause(
     fOUT,
-    frame_started,
-    pause_started,
-    st
+    // frame_started,
+    // pause_started,
+    // st
+    ctx
   );
 
   int input_data2 = 0;
@@ -917,45 +948,46 @@ void frameSkip(
   //   );
   // }
 
-  *pause_len += fs;
-
-  *first_byte = TRUE;
+  ctx->pause_len += fs;
+  ctx->first_byte = TRUE;
 }
 
 void sampleSkip(
   gzFile fIN,
   FILE* fOUT,
-  int sample_divider,
-  int* pause_len,
+  // int sample_divider,
+  // int* pause_len,
   // int* loop_offset,
-  int* first_byte,
-  int* pause_started,
-  int* frame_started,
-  PSGState *st
+  // int* first_byte,
+  // int* pause_started,
+  // int* frame_started,
+  // PSGState *st
+  Context *ctx
 )
 {
   found_pause(
     fOUT, 
-    frame_started,
-    pause_started,
-    st
+    // frame_started,
+    // pause_started,
+    // st
+    ctx
   );
 
   int ss = gzgetc(fIN) + gzgetc(fIN) * 256;
 
   // samples to frames
-  int fs = ss / sample_divider;
+  int fs = ss / ctx->sample_divider;
 
-  if ((ss % sample_divider) != 0)
+  if ((ss % ctx->sample_divider) != 0)
   {
     printf("Warning: pause length isn't perfectly frame sync'd\n");
-    if ((ss % sample_divider) > (sample_divider / 2)) 
+    if ((ss % ctx->sample_divider) > (ctx->sample_divider / 2)) 
     {
       fs++;
     }
   }
 
-  *pause_len += fs;
+  ctx->pause_len += fs;
 
   // *loop_offset -= 2;
 
@@ -974,17 +1006,18 @@ void sampleSkip(
   //   );
   // }
 
-  *first_byte = TRUE;
+  ctx->first_byte = TRUE;
 }
 
 void endOfData(
   FILE* fOUT,
-  int* pause_len,
+  // int* pause_len,
   // int* loop_offset,
-  int* pause_started,
-  int* frame_started,
+  // int* pause_started,
+  // int* frame_started,
   // int* leave
-  PSGState *st
+  // PSGState *st
+  Context *ctx
 )
 {
   // end of data
@@ -1007,10 +1040,11 @@ void endOfData(
 
   empty_data(
     fOUT,
-    pause_len,
-    pause_started,
-    frame_started,
-    st
+    // pause_len,
+    // pause_started,
+    // frame_started,
+    // st
+    ctx
   );
 
   fputc(
@@ -1027,7 +1061,23 @@ int main(int argc, char *argv[])
 {
   printf("*** sverx's VGM to PSG converter ***\n");
 
-  PSGState st;
+  // PSGState st;
+  Context ctx;
+
+  // int first_byte = TRUE;
+  // int pause_len = 0;  // 「待ち時間（ウェイト）の長さ」を蓄積するカウンタ
+  // int frame_started = TRUE;
+  // int pause_started = FALSE;
+  // int warn_32 = FALSE;
+  // int latched_chn = 0;
+  // unsigned char lastlatch = 0b1001'1111;
+
+  ctx.first_byte = TRUE;
+  ctx.pause_len = 0;
+  ctx.frame_started = TRUE;
+  ctx.pause_started = FALSE;
+  ctx.warn_32 = FALSE;
+  ctx.lastlatch = 0b1001'1111;
 
   // argcのチェック
   if(checkArgc(argc))
@@ -1037,10 +1087,10 @@ int main(int argc, char *argv[])
   }
 
   // SFXかどうか
-  int is_sfx = checkSFX(
+  ctx.is_sfx = checkSFX(
     argc,
     argv,
-    &st
+    &ctx.st
   );
 
   // 入力ファイルのオープン
@@ -1067,7 +1117,7 @@ int main(int argc, char *argv[])
   }
 
   // 録音レートの取得
-  int sample_divider = getSampleDivider(fIN);
+  ctx.sample_divider = getSampleDivider(fIN);
 
   // データの位置を取得
   unsigned int data_offset = getDataOffset(fIN);
@@ -1084,13 +1134,6 @@ int main(int argc, char *argv[])
 
   int leave = FALSE;  // ループを抜けるフラグ
   int fatal = FALSE;  // エラーがあったかどうかのフラグ
-  int first_byte = TRUE;
-  int pause_len = 0;  // 「待ち時間（ウェイト）の長さ」を蓄積するカウンタ
-  int frame_started = TRUE;
-  int pause_started = FALSE;
-  int warn_32 = FALSE;
-  int latched_chn = 0;
-  unsigned char lastlatch = 0b1001'1111;
 
   while (
     (leave == FALSE) && 
@@ -1130,9 +1173,10 @@ int main(int argc, char *argv[])
           fIN,
           fOUT,
           // &loop_offset,
-          &pause_len,
-          &pause_started,
-          &frame_started
+          // &pause_len,
+          // &pause_started,
+          // &frame_started
+          &ctx
         );
         break;
       }
@@ -1144,9 +1188,10 @@ int main(int argc, char *argv[])
           fIN, 
           fOUT, 
           // &loop_offset,
-          &pause_len,
-          &pause_started,
-          &frame_started 
+          // &pause_len,
+          // &pause_started,
+          // &frame_started 
+          &ctx
         );
         break;
       }
@@ -1157,16 +1202,17 @@ int main(int argc, char *argv[])
         psgFollows(
           fIN, 
           fOUT, 
-          is_sfx,
-          &first_byte,
+          // is_sfx,
+          // &first_byte,
           // &loop_offset,
-          &pause_started,
-          &pause_len,
-          &frame_started,
-          &warn_32,
-          &latched_chn,
-          &lastlatch,
-          &st
+          // &pause_started,
+          // &pause_len,
+          // &frame_started,
+          // &warn_32,
+          // &latched_chn,
+          // &lastlatch,
+          // &st
+          &ctx
         );
         break;
       }
@@ -1178,12 +1224,13 @@ int main(int argc, char *argv[])
         frameSkip(
           fIN,
           fOUT,
-          &first_byte,
+          // &first_byte,
           // &loop_offset,
-          &pause_len,
-          &pause_started,
-          &frame_started,
-          &st
+          // &pause_len,
+          // &pause_started,
+          // &frame_started,
+          // &st
+          &ctx
         );
         break;
       }
@@ -1195,13 +1242,14 @@ int main(int argc, char *argv[])
         sampleSkip(
           fIN,
           fOUT,
-          sample_divider,
-          &pause_len,
+          // sample_divider,
+          // &pause_len,
           // &loop_offset,
-          &first_byte,
-          &pause_started,
-          &frame_started,
-          &st
+          // &first_byte,
+          // &pause_started,
+          // &frame_started,
+          // &st
+          &ctx
         );
 
         break;
@@ -1212,12 +1260,13 @@ int main(int argc, char *argv[])
 
         endOfData(
           fOUT,
-          &pause_len,
+          // &pause_len,
           // &loop_offset,
-          &pause_started,
-          &frame_started,
+          // &pause_started,
+          // &frame_started,
           // &leave  // ループを抜けるためのフラグ
-          &st
+          // &st
+          &ctx
         );
 
         leave = TRUE;
