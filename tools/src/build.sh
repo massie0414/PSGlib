@@ -1,0 +1,1 @@
+gcc -Wall -o vgm2psg.exe vgm2psg.c -lz
